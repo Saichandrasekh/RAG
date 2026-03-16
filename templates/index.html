@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document Retrieval QA</title>
+  <style>
+    :root {
+      --bg-color: #f8fafc;
+      --text-color: #1e293b;
+      --primary-color: #3b82f6;
+      --secondary-color: #e2e8f0;
+      --card-bg: #ffffff;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    header {
+      width: 100%;
+      background: var(--card-bg);
+      padding: 24px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-color);
+    }
+    .container {
+      width: 100%;
+      max-width: 768px;
+      padding: 0 20px;
+    }
+    .search-box {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 40px;
+    }
+    .upload-box {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      align-items: center;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 16px 20px;
+      border: 1px solid var(--secondary-color);
+      border-radius: 12px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input[type="text"]:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    input[type="file"] {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid var(--secondary-color);
+      border-radius: 12px;
+      background: #fff;
+    }
+    button {
+      padding: 16px 28px;
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #2563eb;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      margin-bottom: 24px;
+    }
+    .card h3 {
+      margin-top: 0;
+      margin-bottom: 20px;
+      font-size: 1.25rem;
+      color: var(--primary-color);
+      border-bottom: 1px solid var(--secondary-color);
+      padding-bottom: 10px;
+    }
+    .answer {
+      white-space: pre-wrap;
+      line-height: 1.7;
+      font-size: 1.05rem;
+    }
+    .sources-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 32px;
+      margin-bottom: 16px;
+      color: #64748b;
+    }
+    .source-pill {
+      display: inline-block;
+      background-color: #f1f5f9;
+      color: #475569;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.875rem;
+      margin-right: 8px;
+      margin-bottom: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .empty-state {
+      text-align: center;
+      color: #94a3b8;
+      margin-top: 60px;
+      font-size: 1.1rem;
+    }
+    .status-msg {
+      margin-bottom: 24px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Document Retrieval & QA System</h1>
+  </header>
+
+  <div class="container">
+    <form method="post" action="/upload" enctype="multipart/form-data" class="upload-box">
+      <input type="file" name="document" accept=".txt,.pdf,.docx" required>
+      <button type="submit">Upload & Ingest</button>
+    </form>
+
+    {% if upload_status %}
+      <div class="status-msg">{{ upload_status }}</div>
+    {% endif %}
+
+    <form method="post" class="search-box">
+      <input type="text" name="query" placeholder="Ask a question about your documents..." value="{{ query }}" required>
+      <button type="submit">Search</button>
+    </form>
+
+    {% if answer %}
+      <div class="card">
+        <h3>Answer</h3>
+        <div class="answer">{{ answer }}</div>
+        
+        {% if chunks %}
+          <div class="sources-title">Sources Used</div>
+          <div>
+            {% set unique_sources = [] %}
+            {% for c in chunks %}
+              {% if c.source not in unique_sources %}
+                {% set _ = unique_sources.append(c.source) %}
+              {% endif %}
+            {% endfor %}
+            
+            {% for src in unique_sources %}
+              <div class="source-pill">📄 {{ src }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% elif query %}
+      <div class="empty-state">
+        <p>No relevant data found for your query. Try rephrasing.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</body>
+</html>
