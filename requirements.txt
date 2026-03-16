@@ -1,0 +1,12 @@
+# requirements
+flask
+scikit-learn
+numpy
+PyPDF2
+python-docx
+tqdm
+sentence-transformers
+nltk
+chromadb
+openai
+python-dotenv
