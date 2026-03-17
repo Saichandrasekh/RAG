@@ -3,10 +3,11 @@ import chromadb
 from chromadb.utils import embedding_functions
 import os
 import re
+import shutil
 from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
-from ingest import ingest_new_files, DATA_DIR
+from ingest import ingest_new_files, DATA_DIR, IMAGES_DIR
 
 load_dotenv()
 openai_client = OpenAI(
@@ -40,14 +41,16 @@ def is_allowed_file(filename):
     return os.path.splitext(filename.lower())[1] in ALLOWED_EXTENSIONS
 
 
-def make_unique_filename(base_dir, filename):
-    candidate = filename
-    name, ext = os.path.splitext(filename)
-    counter = 1
-    while os.path.exists(os.path.join(base_dir, candidate)):
-        candidate = f"{name}_{counter}{ext}"
-        counter += 1
-    return candidate
+def delete_file_and_index(filename):
+    file_path = os.path.join(DATA_DIR, filename)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    results = collection.get(where={"source": filename})
+    if results and results["ids"]:
+        collection.delete(ids=results["ids"])
+    img_dir = os.path.join(IMAGES_DIR, filename)
+    if os.path.exists(img_dir):
+        shutil.rmtree(img_dir)
 
 def generate_rag_answer(chunks, query):
     if not chunks:
@@ -120,6 +123,8 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
                 "source": chunk["source"],
                 "score": round(dist, 3),
                 "text": chunk["text"],
+                "page": chunk.get("page", -1),
+                "image_urls": chunk.get("image_urls", []),
                 "hybrid_score": hybrid_score,
             }
         )
@@ -150,6 +155,8 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
                 "source": item["source"],
                 "score": round(item["distance"], 3),
                 "text": item["text"],
+                "page": item.get("page", -1),
+                "image_urls": item.get("image_urls", []),
             }
         )
     return fallback
@@ -171,13 +178,27 @@ def search(query, top_k=None):
         for i in range(len(results['documents'][0])):
             doc_text = results['documents'][0][i]
             meta = results['metadatas'][0][i]
-            # ChromaDB returns distance: lower is better
             dist = float(results['distances'][0][i])
+            source = meta.get("source", "Unknown")
+            page = meta.get("page", -1)
+
+            image_url = None
+            if page >= 0:
+                img_dir = os.path.join("static", "images", source)
+                if os.path.exists(img_dir):
+                    matches = [
+                        f"/static/images/{source}/{f}"
+                        for f in sorted(os.listdir(img_dir))
+                        if f.startswith(f"page_{page}_")
+                    ]
+                    image_url = matches if matches else None
 
             raw_chunks.append({
-                "source": meta.get("source", "Unknown"),
+                "source": source,
                 "distance": dist,
                 "text": doc_text,
+                "page": page,
+                "image_urls": image_url or [],
             })
 
     chunks = rerank_and_filter_chunks(raw_chunks, query, top_k=top_k, max_distance=max_distance)
@@ -202,12 +223,15 @@ def index():
             answer = result.get("answer", "")
             chunks = result.get("chunks", [])
 
+    uploaded_files = sorted(os.listdir(DATA_DIR)) if os.path.exists(DATA_DIR) else []
+
     return render_template(
         "index.html",
         query=query,
         answer=answer,
         chunks=chunks,
-        upload_status=upload_status
+        upload_status=upload_status,
+        uploaded_files=uploaded_files
     )
 
 
@@ -225,18 +249,51 @@ def upload():
         return redirect(url_for("index", upload_status="Only .txt, .pdf, and .docx files are supported."))
 
     os.makedirs(DATA_DIR, exist_ok=True)
-    unique_name = make_unique_filename(DATA_DIR, filename)
-    save_path = os.path.join(DATA_DIR, unique_name)
-    file.save(save_path)
+
+    if os.path.exists(os.path.join(DATA_DIR, filename)):
+        return redirect(url_for("index", upload_status=f"'{filename}' already exists. Use Replace to update it."))
+
+    file.save(os.path.join(DATA_DIR, filename))
 
     try:
         ingest_new_files()
-        message = f"Uploaded '{unique_name}' and updated the index."
+        message = f"Uploaded '{filename}' and updated the index."
     except Exception as e:
         message = f"File uploaded, but ingest failed: {e}"
 
     return redirect(url_for("index", upload_status=message))
 
+
+@app.route("/delete", methods=["POST"])
+def delete():
+    filename = request.form.get("filename")
+    if filename:
+        delete_file_and_index(filename)
+        message = f"Deleted '{filename}'."
+    else:
+        message = "No file specified."
+    return redirect(url_for("index", upload_status=message))
+
+
+@app.route("/replace", methods=["POST"])
+def replace():
+    file = request.files.get("document")
+    filename = request.form.get("filename")
+
+    if not file or not filename:
+        return redirect(url_for("index", upload_status="Missing file or filename."))
+
+    delete_file_and_index(filename)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    file.save(os.path.join(DATA_DIR, filename))
+
+    try:
+        ingest_new_files()
+        message = f"Replaced '{filename}' and updated the index."
+    except Exception as e:
+        message = f"File replaced, but ingest failed: {e}"
+
+    return redirect(url_for("index", upload_status=message))
+
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=8000)
