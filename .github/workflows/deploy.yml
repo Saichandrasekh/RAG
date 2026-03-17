@@ -1,0 +1,42 @@
+name: Deploy RAG to Azure
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ACR_NAME: policyragacr.azurecr.io
+  IMAGE_NAME: policyrag
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Docker Login
+      run: |
+        docker login $ACR_NAME -u ${{ secrets.ACR_USERNAME }} -p ${{ secrets.ACR_PASSWORD }}
+
+    - name: Build Image
+      run: |
+        docker build -t $ACR_NAME/$IMAGE_NAME:${{ github.sha }} .
+
+    - name: Push Image
+      run: |
+        docker push $ACR_NAME/$IMAGE_NAME:${{ github.sha }}
+
+    - name: Deploy to Azure
+      run: |
+        az containerapp update \
+        --name policyrag \
+        --resource-group policy_rag \
+        --image $ACR_NAME/$IMAGE_NAME:${{ github.sha }}
