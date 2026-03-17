@@ -37,6 +37,12 @@ jobs:
     - name: Deploy to Azure
       run: |
         az containerapp update \
-        --name policyrag \
-        --resource-group policy_rag \
-        --image $ACR_NAME/$IMAGE_NAME:${{ github.sha }}
+          --name policyrag \
+          --resource-group policy_rag \
+          --image $ACR_NAME/$IMAGE_NAME:${{ github.sha }} \
+          --set-env-vars \
+            XAI_API_KEY=${{ secrets.XAI_API_KEY }} \
+            XAI_BASE_URL=${{ secrets.XAI_BASE_URL }} \
+            XAI_MODEL=${{ secrets.XAI_MODEL }} \
+            RETRIEVAL_TOP_K=${{ secrets.RETRIEVAL_TOP_K }} \
+            RETRIEVAL_MAX_DISTANCE=${{ secrets.RETRIEVAL_MAX_DISTANCE }}
