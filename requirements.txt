@@ -2,7 +2,7 @@
 flask
 scikit-learn
 numpy
-PyPDF2
+pymupdf
 python-docx
 tqdm
 sentence-transformers
@@ -10,3 +10,4 @@ nltk
 chromadb
 openai
 python-dotenv
+gunicorn

@@ -1,7 +1,35 @@
-venv/
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
 .env
+
+# Git
 .git
 .gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Local indexes / vector DB
 index/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Jupyter
+.ipynb_checkpoints

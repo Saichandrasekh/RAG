@@ -2,10 +2,11 @@ import os
 from tqdm import tqdm
 import chromadb
 from chromadb.utils import embedding_functions
-from utils import yield_file_chunks
+from utils import yield_file_chunks, extract_pdf_images
 
 DATA_DIR = "data/raw/knowledge"
 INDEX_DIR = "index/chroma_db"
+IMAGES_DIR = "static/images"
 COLLECTION_NAME = "knowledge_base"
 BATCH_SIZE = 100
 
@@ -38,6 +39,12 @@ def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR):
             continue
 
         path = os.path.join(data_dir, filename)
+
+        # Extract page images for PDFs
+        if filename.lower().endswith(".pdf"):
+            img_dir = os.path.join(IMAGES_DIR, filename)
+            extract_pdf_images(path, img_dir)
+
         chunk_generator = yield_file_chunks(path)
         if chunk_generator is None:
             continue
@@ -47,12 +54,15 @@ def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR):
         batch_ids = []
 
         chunk_idx = 0
-        for chunk in chunk_generator:
+        for chunk, page_num in chunk_generator:
             if not chunk.strip():
                 continue
 
             batch_documents.append(chunk)
-            batch_metadatas.append({"source": filename})
+            batch_metadatas.append({
+                "source": filename,
+                "page": page_num if page_num is not None else -1
+            })
             batch_ids.append(f"{filename}_chunk_{chunk_idx}")
             chunk_idx += 1
 
