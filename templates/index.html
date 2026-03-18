@@ -323,40 +323,68 @@
       searchBtn.disabled = true;
       searchBtn.textContent = 'Searching…';
 
-      // Show skeleton while waiting
+      // Show card immediately with empty answer area
       resultArea.innerHTML = `
-        <div class="card">
+        <div class="card" id="answer-card">
           <div class="card-title">Answer</div>
-          <div class="skeleton skeleton-line full"></div>
-          <div class="skeleton skeleton-line med"></div>
-          <div class="skeleton skeleton-line short"></div>
+          <div class="answer" id="streaming-answer"><span class="skeleton skeleton-line full" style="display:block"></span><span class="skeleton skeleton-line med" style="display:block;margin-top:8px"></span></div>
         </div>`;
 
+      const answerEl = document.getElementById('streaming-answer');
+      let fullText = '';
+      let chunks = [];
+
       try {
-        const res  = await fetch('/api/search', {
+        const res = await fetch('/api/search/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query })
         });
-        const data = await res.json();
 
-        if (data.error) {
-          resultArea.innerHTML = `<div class="card"><p style="color:#dc2626">${data.error}</p></div>`;
-        } else if (data.answer) {
-          const answerHtml = window.marked ? marked.parse(data.answer) : data.answer.replace(/\n/g, '<br>');
-          const uniqueSources = [...new Set((data.chunks || []).map(c => c.source))];
-          const sourcePills   = uniqueSources.map(s => `<span class="source-pill">📄 ${s}</span>`).join('');
-          resultArea.innerHTML = `
-            <div class="card">
-              <div class="card-title">Answer</div>
-              <div class="answer">${answerHtml}</div>
-              ${uniqueSources.length ? `
-              <div class="sources-wrap">
-                <div class="sources-label">Sources</div>
-                ${sourcePills}
-              </div>` : ''}
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') break;
+
+            try {
+              const data = JSON.parse(payload);
+              if (data.chunks) {
+                chunks = data.chunks;
+              } else if (data.token) {
+                fullText += data.token;
+                answerEl.innerHTML = window.marked ? marked.parse(fullText) : fullText.replace(/\n/g, '<br>');
+              } else if (data.answer) {
+                // empty result case
+                answerEl.innerHTML = `<p style="color:#64748b">${data.answer}</p>`;
+              }
+            } catch (e) { /* malformed JSON line, skip */ }
+          }
+        }
+
+        // Add sources after streaming completes
+        if (chunks.length) {
+          const uniqueSources = [...new Set(chunks.map(c => c.source))];
+          const sourcePills = uniqueSources.map(s => `<span class="source-pill">📄 ${s}</span>`).join('');
+          document.getElementById('answer-card').innerHTML += `
+            <div class="sources-wrap">
+              <div class="sources-label">Sources</div>
+              ${sourcePills}
             </div>`;
-        } else {
+        }
+
+        if (!fullText && !chunks.length) {
           resultArea.innerHTML = `
             <div class="empty-state">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -365,6 +393,7 @@
               <p>No relevant data found. Try rephrasing your question.</p>
             </div>`;
         }
+
       } catch (err) {
         resultArea.innerHTML = `<div class="card"><p style="color:#dc2626">Network error. Please try again.</p></div>`;
       }

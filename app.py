@@ -1,15 +1,26 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 import chromadb
 from chromadb.utils import embedding_functions
 import os
 import re
+import json
 import shutil
 import threading
+import logging
 from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
 from ingest import ingest_new_files, DATA_DIR, IMAGES_DIR
 
+# ── Logging setup ────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+# ── App init ─────────────────────────────────────────────────────────────────
 load_dotenv()
 openai_client = OpenAI(
     api_key=os.getenv("XAI_API_KEY"),
@@ -26,26 +37,31 @@ STOPWORDS = {
     "when", "where", "which", "who", "why", "with", "you", "your"
 }
 
-# Initialize ChromaDB
-print("Initializing ChromaDB in app...")
+# ── ChromaDB init ─────────────────────────────────────────────────────────────
+logger.info("Initializing ChromaDB...")
 chroma_client = chromadb.PersistentClient(path="index/chroma_db")
 sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 collection = chroma_client.get_or_create_collection(
     name="knowledge_base",
     embedding_function=sentence_transformer_ef
 )
+logger.info(f"ChromaDB ready. Total chunks in index: {collection.count()}")
 
 # Track background ingest jobs: filename -> status
 ingest_status = {}
 
 
+# ── Ingest background thread ──────────────────────────────────────────────────
 def run_ingest_background(filename):
+    logger.info(f"[INGEST] Starting background ingest for: {filename}")
     ingest_status[filename] = "processing"
     try:
         ingest_new_files(collection=collection)
         ingest_status[filename] = "done"
+        logger.info(f"[INGEST] Completed successfully: {filename} | Total chunks: {collection.count()}")
     except Exception as e:
         ingest_status[filename] = f"error: {e}"
+        logger.error(f"[INGEST] Failed for {filename}: {e}", exc_info=True)
 
 
 def is_allowed_file(filename):
@@ -53,58 +69,25 @@ def is_allowed_file(filename):
 
 
 def delete_file_and_index(filename):
+    logger.info(f"[DELETE] Removing file and index for: {filename}")
     file_path = os.path.join(DATA_DIR, filename)
     if os.path.exists(file_path):
         os.remove(file_path)
+        logger.info(f"[DELETE] File removed: {file_path}")
     results = collection.get(where={"source": filename})
     if results and results["ids"]:
         collection.delete(ids=results["ids"])
+        logger.info(f"[DELETE] Removed {len(results['ids'])} chunks from index for: {filename}")
     img_dir = os.path.join(IMAGES_DIR, filename)
     if os.path.exists(img_dir):
         shutil.rmtree(img_dir)
+        logger.info(f"[DELETE] Removed image dir: {img_dir}")
 
-def generate_rag_answer(chunks, query):
-    if not chunks:
-        return "Sorry, I couldn't find any relevant documents to answer your question."
 
-    context = "\n\n".join([chunk["text"].strip() for chunk in chunks])
-
-    prompt = f"""You are a helpful, intelligent Document Retrieval Assistant.
-Please read the provided Excerpts and answer the User's Question clearly and conversationally.
-- Use ONLY the provided Excerpts.
-- If the answer is not contained in the Excerpts, simply reply: "I'm sorry, I don't see the answer to that in the provided documents."
-- If the Excerpts are not relevant to the question, do not guess.
-
-Excerpts:
-{context}
-
-User's Question: {query}
-Answer:"""
-
-    try:
-        response = openai_client.chat.completions.create(
-            model=os.getenv("XAI_MODEL", "grok-3-latest"),
-            temperature=0,
-            messages=[
-                {"role": "system", "content": "You are a helpful document retrieval assistant."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content
-
-    except Exception as e:
-        print(f"LLM Generation Error: {e}")
-        seen = set()
-        paragraphs = []
-        for chunk in chunks:
-            text = chunk["text"].strip()
-            if text and text not in seen:
-                seen.add(text)
-                paragraphs.append(text)
-        return "\n\n".join(paragraphs)
-
+# ── Retrieval ─────────────────────────────────────────────────────────────────
 def tokenize(text):
     return re.findall(r"[a-z0-9]+", text.lower())
+
 
 def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
     query_terms = {tok for tok in tokenize(query) if tok not in STOPWORDS}
@@ -114,28 +97,22 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
         dist = chunk["distance"]
         if dist > max_distance:
             continue
-
         chunk_terms = set(tokenize(chunk["text"]))
         overlap = 0.0
         if query_terms:
             overlap = len(query_terms & chunk_terms) / len(query_terms)
-
         semantic_score = max(0.0, 1.0 - (dist / max_distance))
         hybrid_score = 0.8 * semantic_score + 0.2 * overlap
-
         if overlap == 0 and dist > (max_distance * 0.9):
             continue
-
-        ranked.append(
-            {
-                "source": chunk["source"],
-                "score": round(dist, 3),
-                "text": chunk["text"],
-                "page": chunk.get("page", -1),
-                "image_urls": chunk.get("image_urls", []),
-                "hybrid_score": hybrid_score,
-            }
-        )
+        ranked.append({
+            "source": chunk["source"],
+            "score": round(dist, 3),
+            "text": chunk["text"],
+            "page": chunk.get("page", -1),
+            "image_urls": chunk.get("image_urls", []),
+            "hybrid_score": hybrid_score,
+        })
 
     ranked.sort(key=lambda x: (-x["hybrid_score"], x["score"]))
 
@@ -155,45 +132,35 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
         return deduped
 
     raw_by_distance = sorted(raw_chunks, key=lambda x: x["distance"])
-    fallback = []
-    for item in raw_by_distance[:top_k]:
-        fallback.append(
-            {
-                "source": item["source"],
-                "score": round(item["distance"], 3),
-                "text": item["text"],
-                "page": item.get("page", -1),
-                "image_urls": item.get("image_urls", []),
-            }
-        )
-    return fallback
+    return [
+        {"source": i["source"], "score": round(i["distance"], 3),
+         "text": i["text"], "page": i.get("page", -1), "image_urls": i.get("image_urls", [])}
+        for i in raw_by_distance[:top_k]
+    ]
 
-def search(query, top_k=None):
+
+def retrieve_chunks(query, top_k=None):
     if top_k is None:
         top_k = int(os.getenv("RETRIEVAL_TOP_K", "8"))
-
-    initial_k = max(top_k * 4, 20)
     max_distance = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "1.4"))
 
     total_docs = collection.count()
-    if total_docs == 0:
-        return {"answer": "No documents have been indexed yet. Please upload a file first.", "chunks": []}
-    initial_k = min(initial_k, total_docs)
+    logger.info(f"[SEARCH] Query: '{query}' | Total indexed chunks: {total_docs}")
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=initial_k
-    )
+    if total_docs == 0:
+        logger.warning("[SEARCH] No documents in index.")
+        return [], top_k, max_distance
+
+    initial_k = min(max(top_k * 4, 20), total_docs)
+    results = collection.query(query_texts=[query], n_results=initial_k)
 
     raw_chunks = []
     if results and results['documents'] and results['documents'][0]:
         for i in range(len(results['documents'][0])):
-            doc_text = results['documents'][0][i]
             meta = results['metadatas'][0][i]
             dist = float(results['distances'][0][i])
             source = meta.get("source", "Unknown")
             page = meta.get("page", -1)
-
             image_url = None
             if page >= 0:
                 img_dir = os.path.join("static", "images", source)
@@ -204,41 +171,84 @@ def search(query, top_k=None):
                         if f.startswith(f"page_{page}_")
                     ]
                     image_url = matches if matches else None
-
             raw_chunks.append({
-                "source": source,
-                "distance": dist,
-                "text": doc_text,
-                "page": page,
-                "image_urls": image_url or [],
+                "source": source, "distance": dist,
+                "text": results['documents'][0][i],
+                "page": page, "image_urls": image_url or [],
             })
 
     chunks = rerank_and_filter_chunks(raw_chunks, query, top_k=top_k, max_distance=max_distance)
-    answer = generate_rag_answer(chunks, query)
+    logger.info(f"[SEARCH] Returning {len(chunks)} chunks for query: '{query}'")
+    return chunks, top_k, max_distance
 
-    return {
-        "answer": answer,
-        "chunks": chunks
-    }
 
+def build_prompt(chunks, query):
+    context = "\n\n".join([c["text"].strip() for c in chunks])
+    return f"""You are a helpful, intelligent Document Retrieval Assistant.
+Please read the provided Excerpts and answer the User's Question clearly and conversationally.
+- Use ONLY the provided Excerpts.
+- If the answer is not contained in the Excerpts, simply reply: "I'm sorry, I don't see the answer to that in the provided documents."
+- If the Excerpts are not relevant to the question, do not guess.
+
+Excerpts:
+{context}
+
+User's Question: {query}
+Answer:"""
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 @app.route("/", methods=["GET"])
 def index():
     uploaded_files = sorted(os.listdir(DATA_DIR)) if os.path.exists(DATA_DIR) else []
-    return render_template(
-        "index.html",
-        uploaded_files=uploaded_files,
-        ingest_status=ingest_status
-    )
+    return render_template("index.html", uploaded_files=uploaded_files, ingest_status=ingest_status)
 
 
-@app.route("/api/search", methods=["POST"])
-def api_search():
+@app.route("/api/search/stream", methods=["POST"])
+def api_search_stream():
     data = request.get_json()
     query = (data or {}).get("query", "").strip()
     if not query:
         return jsonify({"error": "Empty query"}), 400
-    result = search(query)
-    return jsonify(result)
+
+    logger.info(f"[STREAM] Search request: '{query}'")
+
+    chunks, top_k, max_distance = retrieve_chunks(query)
+
+    if not chunks:
+        def empty_gen():
+            yield f"data: {json.dumps({'chunks': [], 'answer': 'No documents indexed yet or no relevant results found.'})}\n\n"
+            yield "data: [DONE]\n\n"
+        return Response(stream_with_context(empty_gen()), mimetype="text/event-stream")
+
+    prompt = build_prompt(chunks, query)
+
+    def generate():
+        # Send chunks metadata first
+        yield f"data: {json.dumps({'chunks': chunks})}\n\n"
+        try:
+            logger.info(f"[STREAM] Starting LLM stream for query: '{query}'")
+            stream = openai_client.chat.completions.create(
+                model=os.getenv("XAI_MODEL", "grok-3-latest"),
+                temperature=0,
+                stream=True,
+                messages=[
+                    {"role": "system", "content": "You are a helpful document retrieval assistant."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            for chunk in stream:
+                token = chunk.choices[0].delta.content
+                if token:
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+            logger.info(f"[STREAM] LLM stream completed for query: '{query}'")
+        except Exception as e:
+            logger.error(f"[STREAM] LLM error for query '{query}': {e}", exc_info=True)
+            fallback = "\n\n".join(c["text"].strip() for c in chunks)
+            yield f"data: {json.dumps({'token': fallback})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -260,6 +270,7 @@ def upload():
         return jsonify({"error": f"'{filename}' already exists. Use Replace to update it."}), 409
 
     file.save(os.path.join(DATA_DIR, filename))
+    logger.info(f"[UPLOAD] File saved: {filename}")
 
     thread = threading.Thread(target=run_ingest_background, args=(filename,), daemon=True)
     thread.start()
@@ -270,6 +281,7 @@ def upload():
 @app.route("/ingest_status/<filename>")
 def get_ingest_status(filename):
     status = ingest_status.get(filename, "unknown")
+    logger.debug(f"[STATUS] {filename} -> {status}")
     return jsonify({"filename": filename, "status": status})
 
 
@@ -295,15 +307,19 @@ def replace():
     delete_file_and_index(filename)
     os.makedirs(DATA_DIR, exist_ok=True)
     file.save(os.path.join(DATA_DIR, filename))
+    logger.info(f"[REPLACE] File replaced: {filename}")
 
     thread = threading.Thread(target=run_ingest_background, args=(filename,), daemon=True)
     thread.start()
 
     return jsonify({"filename": filename, "status": "processing"})
 
+
 @app.errorhandler(413)
 def file_too_large(_):
-    return redirect(url_for("index", upload_status="File too large. Maximum allowed size is 500 MB."))
+    logger.warning("[UPLOAD] File too large rejected.")
+    return jsonify({"error": "File too large. Maximum allowed size is 500 MB."}), 413
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
