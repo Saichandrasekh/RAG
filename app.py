@@ -4,13 +4,12 @@ from chromadb.utils import embedding_functions
 import os
 import re
 import json
-import shutil
 import threading
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
-from ingest import ingest_new_files, DATA_DIR, IMAGES_DIR
+from ingest import ingest_new_files, DATA_DIR
 
 # ── Logging setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -78,10 +77,6 @@ def delete_file_and_index(filename):
     if results and results["ids"]:
         collection.delete(ids=results["ids"])
         logger.info(f"[DELETE] Removed {len(results['ids'])} chunks from index for: {filename}")
-    img_dir = os.path.join(IMAGES_DIR, filename)
-    if os.path.exists(img_dir):
-        shutil.rmtree(img_dir)
-        logger.info(f"[DELETE] Removed image dir: {img_dir}")
 
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
@@ -110,7 +105,6 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
             "score": round(dist, 3),
             "text": chunk["text"],
             "page": chunk.get("page", -1),
-            "image_urls": chunk.get("image_urls", []),
             "hybrid_score": hybrid_score,
         })
 
@@ -134,7 +128,7 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
     raw_by_distance = sorted(raw_chunks, key=lambda x: x["distance"])
     return [
         {"source": i["source"], "score": round(i["distance"], 3),
-         "text": i["text"], "page": i.get("page", -1), "image_urls": i.get("image_urls", [])}
+         "text": i["text"], "page": i.get("page", -1)}
         for i in raw_by_distance[:top_k]
     ]
 
@@ -159,22 +153,11 @@ def retrieve_chunks(query, top_k=None):
         for i in range(len(results['documents'][0])):
             meta = results['metadatas'][0][i]
             dist = float(results['distances'][0][i])
-            source = meta.get("source", "Unknown")
-            page = meta.get("page", -1)
-            image_url = None
-            if page >= 0:
-                img_dir = os.path.join("static", "images", source)
-                if os.path.exists(img_dir):
-                    matches = [
-                        f"/static/images/{source}/{f}"
-                        for f in sorted(os.listdir(img_dir))
-                        if f.startswith(f"page_{page}_")
-                    ]
-                    image_url = matches if matches else None
             raw_chunks.append({
-                "source": source, "distance": dist,
+                "source": meta.get("source", "Unknown"),
+                "distance": dist,
                 "text": results['documents'][0][i],
-                "page": page, "image_urls": image_url or [],
+                "page": meta.get("page", -1),
             })
 
     chunks = rerank_and_filter_chunks(raw_chunks, query, top_k=top_k, max_distance=max_distance)
@@ -219,7 +202,8 @@ def api_search_stream():
         def empty_gen():
             yield f"data: {json.dumps({'chunks': [], 'answer': 'No documents indexed yet or no relevant results found.'})}\n\n"
             yield "data: [DONE]\n\n"
-        return Response(stream_with_context(empty_gen()), mimetype="text/event-stream")
+        return Response(stream_with_context(empty_gen()), mimetype="text/event-stream",
+                        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
 
     prompt = build_prompt(chunks, query)
 
@@ -248,7 +232,8 @@ def api_search_stream():
             yield f"data: {json.dumps({'token': fallback})}\n\n"
         yield "data: [DONE]\n\n"
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
 
 
 @app.route("/api/upload", methods=["POST"])
