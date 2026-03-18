@@ -1,9 +1,10 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 import chromadb
 from chromadb.utils import embedding_functions
 import os
 import re
 import shutil
+import threading
 from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
@@ -14,8 +15,6 @@ openai_client = OpenAI(
     api_key=os.getenv("XAI_API_KEY"),
     base_url=os.getenv("XAI_BASE_URL", "https://api.x.ai/v1"),
 )
-
-
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
@@ -35,6 +34,18 @@ collection = chroma_client.get_or_create_collection(
     name="knowledge_base",
     embedding_function=sentence_transformer_ef
 )
+
+# Track background ingest jobs: filename -> status
+ingest_status = {}
+
+
+def run_ingest_background(filename):
+    ingest_status[filename] = "processing"
+    try:
+        ingest_new_files()
+        ingest_status[filename] = "done"
+    except Exception as e:
+        ingest_status[filename] = f"error: {e}"
 
 
 def is_allowed_file(filename):
@@ -56,10 +67,9 @@ def generate_rag_answer(chunks, query):
     if not chunks:
         return "Sorry, I couldn't find any relevant documents to answer your question."
 
-    # Combine all retrieved text to serve as context
     context = "\n\n".join([chunk["text"].strip() for chunk in chunks])
 
-    prompt = f"""You are a helpful, intelligent Document Retrieval Assistant. 
+    prompt = f"""You are a helpful, intelligent Document Retrieval Assistant.
 Please read the provided Excerpts and answer the User's Question clearly and conversationally.
 - Use ONLY the provided Excerpts.
 - If the answer is not contained in the Excerpts, simply reply: "I'm sorry, I don't see the answer to that in the provided documents."
@@ -81,10 +91,9 @@ Answer:"""
             ]
         )
         return response.choices[0].message.content
-        
+
     except Exception as e:
         print(f"LLM Generation Error: {e}")
-        # Fallback to the raw chunks if the API call fails
         seen = set()
         paragraphs = []
         for chunk in chunks:
@@ -114,7 +123,6 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
         semantic_score = max(0.0, 1.0 - (dist / max_distance))
         hybrid_score = 0.8 * semantic_score + 0.2 * overlap
 
-        # Reject only very weak matches; keep moderately related context.
         if overlap == 0 and dist > (max_distance * 0.9):
             continue
 
@@ -146,7 +154,6 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
     if deduped:
         return deduped
 
-    # Fallback: if filters were too strict, return nearest chunks by distance.
     raw_by_distance = sorted(raw_chunks, key=lambda x: x["distance"])
     fallback = []
     for item in raw_by_distance[:top_k]:
@@ -231,7 +238,8 @@ def index():
         answer=answer,
         chunks=chunks,
         upload_status=upload_status,
-        uploaded_files=uploaded_files
+        uploaded_files=uploaded_files,
+        ingest_status=ingest_status
     )
 
 
@@ -255,13 +263,17 @@ def upload():
 
     file.save(os.path.join(DATA_DIR, filename))
 
-    try:
-        ingest_new_files()
-        message = f"Uploaded '{filename}' and updated the index."
-    except Exception as e:
-        message = f"File uploaded, but ingest failed: {e}"
+    # Start ingestion in background thread
+    thread = threading.Thread(target=run_ingest_background, args=(filename,), daemon=True)
+    thread.start()
 
-    return redirect(url_for("index", upload_status=message))
+    return redirect(url_for("index", upload_status=f"Uploaded '{filename}'. Indexing in background..."))
+
+
+@app.route("/ingest_status/<filename>")
+def get_ingest_status(filename):
+    status = ingest_status.get(filename, "unknown")
+    return jsonify({"filename": filename, "status": status})
 
 
 @app.route("/delete", methods=["POST"])
@@ -269,6 +281,7 @@ def delete():
     filename = request.form.get("filename")
     if filename:
         delete_file_and_index(filename)
+        ingest_status.pop(filename, None)
         message = f"Deleted '{filename}'."
     else:
         message = "No file specified."
@@ -287,17 +300,14 @@ def replace():
     os.makedirs(DATA_DIR, exist_ok=True)
     file.save(os.path.join(DATA_DIR, filename))
 
-    try:
-        ingest_new_files()
-        message = f"Replaced '{filename}' and updated the index."
-    except Exception as e:
-        message = f"File replaced, but ingest failed: {e}"
+    thread = threading.Thread(target=run_ingest_background, args=(filename,), daemon=True)
+    thread.start()
 
-    return redirect(url_for("index", upload_status=message))
+    return redirect(url_for("index", upload_status=f"Replaced '{filename}'. Indexing in background..."))
 
 @app.errorhandler(413)
 def file_too_large(_):
-    return redirect(url_for("index", upload_status="File too large. Maximum allowed size is 100 MB."))
+    return redirect(url_for("index", upload_status="File too large. Maximum allowed size is 500 MB."))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
