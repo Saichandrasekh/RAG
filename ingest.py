@@ -11,22 +11,21 @@ COLLECTION_NAME = "knowledge_base"
 BATCH_SIZE = 100
 
 
-def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR):
-    os.makedirs(index_dir, exist_ok=True)
+def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR, collection=None):
+    if collection is None:
+        os.makedirs(index_dir, exist_ok=True)
+        print("Initializing ChromaDB...")
+        chroma_client = chromadb.PersistentClient(path=index_dir)
+        sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2"
+        )
+        collection = chroma_client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            embedding_function=sentence_transformer_ef,
+        )
 
-    print("Initializing ChromaDB...")
-    chroma_client = chromadb.PersistentClient(path=index_dir)
-    sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"
-    )
-
-    collection = chroma_client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        embedding_function=sentence_transformer_ef,
-    )
-
-    existing_docs = collection.get(include=["metadatas"])
     existing_sources = set()
+    existing_docs = collection.get(include=["metadatas"])
     if existing_docs and existing_docs["metadatas"]:
         for meta in existing_docs["metadatas"]:
             if meta and "source" in meta:

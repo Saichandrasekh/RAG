@@ -29,292 +29,162 @@
       top: 0;
       z-index: 100;
     }
-    header h1 {
-      font-size: 1.1rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-    }
+    header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.02em; }
     header h1 span { color: #60a5fa; }
-
     .header-right { display: flex; align-items: center; gap: 12px; }
-
     .files-toggle-btn {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 16px;
-      background: #334155;
-      color: #e2e8f0;
-      border: 1px solid #475569;
-      border-radius: 8px;
-      font-size: 0.88rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 16px; background: #334155; color: #e2e8f0;
+      border: 1px solid #475569; border-radius: 8px;
+      font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
     }
     .files-toggle-btn:hover { background: #475569; color: white; }
     .files-toggle-btn svg { width: 16px; height: 16px; }
     .badge {
-      background: #3b82f6;
-      color: white;
-      border-radius: 999px;
-      padding: 1px 7px;
-      font-size: 0.75rem;
-      font-weight: 700;
+      background: #3b82f6; color: white; border-radius: 999px;
+      padding: 1px 7px; font-size: 0.75rem; font-weight: 700;
     }
 
     /* ── Layout ── */
-    .layout {
-      display: flex;
-      flex: 1;
-      position: relative;
-      overflow: hidden;
-    }
+    .layout { display: flex; flex: 1; position: relative; overflow: hidden; }
 
-    /* ── Drawer Sidebar ── */
+    /* ── Sidebar ── */
     .sidebar {
-      width: 300px;
-      background: white;
-      border-right: 1px solid #e2e8f0;
-      display: flex;
-      flex-direction: column;
-      transition: margin-left 0.3s ease;
-      height: calc(100vh - 60px);
-      position: sticky;
-      top: 60px;
-      flex-shrink: 0;
-      overflow-y: auto;
+      width: 300px; background: white; border-right: 1px solid #e2e8f0;
+      display: flex; flex-direction: column; transition: margin-left 0.3s ease;
+      height: calc(100vh - 60px); position: sticky; top: 60px;
+      flex-shrink: 0; overflow-y: auto;
     }
     .sidebar.hidden { margin-left: -300px; }
-
-    .sidebar-header {
-      padding: 20px 20px 14px;
-      border-bottom: 1px solid #f1f5f9;
-    }
+    .sidebar-header { padding: 20px 20px 14px; border-bottom: 1px solid #f1f5f9; }
     .sidebar-header h2 {
-      font-size: 0.75rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #94a3b8;
-      margin-bottom: 14px;
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: #94a3b8; margin-bottom: 14px;
     }
 
-    /* Upload area */
     .upload-zone {
-      border: 2px dashed #cbd5e1;
-      border-radius: 10px;
-      padding: 14px;
-      background: #f8fafc;
-      transition: border-color 0.2s;
+      border: 2px dashed #cbd5e1; border-radius: 10px;
+      padding: 14px; background: #f8fafc; transition: border-color 0.2s;
     }
     .upload-zone:hover { border-color: #3b82f6; }
-    .upload-zone input[type="file"] {
-      width: 100%;
-      font-size: 0.8rem;
-      color: #64748b;
-      margin-bottom: 10px;
-    }
+    .upload-zone input[type="file"] { width: 100%; font-size: 0.8rem; color: #64748b; margin-bottom: 10px; }
     .upload-zone input[type="file"]::file-selector-button {
-      padding: 5px 10px;
-      background: #e2e8f0;
-      border: none;
-      border-radius: 6px;
-      font-size: 0.78rem;
-      cursor: pointer;
-      margin-right: 8px;
+      padding: 5px 10px; background: #e2e8f0; border: none;
+      border-radius: 6px; font-size: 0.78rem; cursor: pointer; margin-right: 8px;
     }
     .btn-upload {
-      width: 100%;
-      padding: 10px;
-      background: #3b82f6;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 0.88rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
+      width: 100%; padding: 10px; background: #3b82f6; color: white;
+      border: none; border-radius: 8px; font-size: 0.88rem; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
     }
     .btn-upload:hover { background: #2563eb; }
+    .btn-upload:disabled { background: #93c5fd; cursor: not-allowed; }
 
-    /* File list */
-    .sidebar-files {
-      padding: 14px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      flex: 1;
+    .upload-msg {
+      margin-top: 8px; font-size: 0.8rem; border-radius: 6px;
+      padding: 6px 10px; display: none;
     }
+    .upload-msg.error { background: #fee2e2; color: #dc2626; display: block; }
+    .upload-msg.info  { background: #eff6ff; color: #1d4ed8; display: block; }
+
+    .sidebar-files { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
     .sidebar-files-title {
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #94a3b8;
-      margin-bottom: 4px;
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: #94a3b8; margin-bottom: 4px;
     }
+    .file-count-badge { margin-left: 6px; }
 
     .file-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 10px 12px;
-      transition: box-shadow 0.2s;
+      background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 10px; padding: 10px 12px; transition: box-shadow 0.2s;
     }
     .file-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
     .file-card-name {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 0.83rem;
-      color: #1e293b;
-      font-weight: 500;
-      margin-bottom: 8px;
-      word-break: break-all;
+      display: flex; align-items: center; gap: 7px;
+      font-size: 0.83rem; color: #1e293b; font-weight: 500;
+      margin-bottom: 8px; word-break: break-all;
     }
     .file-icon {
-      width: 28px; height: 28px;
-      background: #dbeafe;
-      border-radius: 6px;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
+      width: 28px; height: 28px; background: #dbeafe; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
     .file-icon svg { width: 14px; height: 14px; color: #3b82f6; }
     .file-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-    .btn-sm {
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 0.76rem;
-      font-weight: 600;
-      cursor: pointer;
-      border: none;
-    }
+    .btn-sm { padding: 4px 10px; border-radius: 6px; font-size: 0.76rem; font-weight: 600; cursor: pointer; border: none; }
     .btn-del { background: #fee2e2; color: #dc2626; }
     .btn-del:hover { background: #fecaca; }
     .btn-rep { background: #fef9c3; color: #92400e; }
     .btn-rep:hover { background: #fef08a; }
     .replace-file { font-size: 0.74rem; max-width: 100px; }
 
-    .no-files {
-      text-align: center;
-      padding: 24px 0;
-      color: #94a3b8;
-      font-size: 0.85rem;
-    }
+    .no-files { text-align: center; padding: 24px 0; color: #94a3b8; font-size: 0.85rem; }
+
     .badge-processing {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      background: #fef9c3;
-      color: #92400e;
-      border: 1px solid #fde68a;
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 0.72rem;
-      font-weight: 600;
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #fef9c3; color: #92400e; border: 1px solid #fde68a;
+      border-radius: 999px; padding: 2px 8px; font-size: 0.72rem; font-weight: 600;
     }
     .badge-done {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      background: #dcfce7;
-      color: #166534;
-      border: 1px solid #bbf7d0;
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 0.72rem;
-      font-weight: 600;
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;
+      border-radius: 999px; padding: 2px 8px; font-size: 0.72rem; font-weight: 600;
+    }
+    .badge-error {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;
+      border-radius: 999px; padding: 2px 8px; font-size: 0.72rem; font-weight: 600;
     }
     .spinner {
-      width: 10px; height: 10px;
-      border: 2px solid #fde68a;
-      border-top-color: #92400e;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      display: inline-block;
+      width: 10px; height: 10px; border: 2px solid #fde68a;
+      border-top-color: #92400e; border-radius: 50%;
+      animation: spin 0.7s linear infinite; display: inline-block;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Main ── */
-    .main {
-      flex: 1;
-      padding: 36px 40px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
+    .main { flex: 1; padding: 36px 40px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
     .main-inner { width: 100%; max-width: 720px; }
 
-    .status-msg {
-      margin-bottom: 20px;
-      padding: 12px 16px;
-      border-radius: 10px;
-      border: 1px solid #bfdbfe;
-      background: #eff6ff;
-      color: #1d4ed8;
-      font-size: 0.9rem;
-    }
-
     .search-box {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 32px;
-      background: white;
-      border-radius: 14px;
-      padding: 6px 6px 6px 18px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-      border: 1px solid #e2e8f0;
+      display: flex; gap: 10px; margin-bottom: 32px;
+      background: white; border-radius: 14px; padding: 6px 6px 6px 18px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;
     }
     .search-box:focus-within { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
     .search-box input[type="text"] {
-      flex: 1;
-      border: none;
-      outline: none;
-      font-size: 0.98rem;
-      color: #1e293b;
-      background: transparent;
-      padding: 8px 0;
+      flex: 1; border: none; outline: none; font-size: 0.98rem;
+      color: #1e293b; background: transparent; padding: 8px 0;
     }
     .btn-search {
-      padding: 12px 24px;
-      background: #3b82f6;
-      color: white;
-      border: none;
-      border-radius: 10px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-      white-space: nowrap;
+      padding: 12px 24px; background: #3b82f6; color: white;
+      border: none; border-radius: 10px; font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; transition: background 0.2s; white-space: nowrap;
     }
     .btn-search:hover { background: #2563eb; }
+    .btn-search:disabled { background: #93c5fd; cursor: not-allowed; }
+
+    /* Skeleton loader */
+    .skeleton { background: #e2e8f0; border-radius: 8px; animation: shimmer 1.2s infinite; }
+    @keyframes shimmer {
+      0%   { opacity: 1; }
+      50%  { opacity: 0.4; }
+      100% { opacity: 1; }
+    }
+    .skeleton-line { height: 14px; margin-bottom: 10px; }
+    .skeleton-line.short { width: 60%; }
+    .skeleton-line.med   { width: 85%; }
+    .skeleton-line.full  { width: 100%; }
 
     .card {
-      background: white;
-      border-radius: 16px;
-      padding: 28px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.07);
-      margin-bottom: 20px;
+      background: white; border-radius: 16px; padding: 28px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.07); margin-bottom: 20px;
     }
     .card-title {
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #3b82f6;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: #3b82f6; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
     }
-    .card-title::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: #f1f5f9;
-    }
+    .card-title::after { content: ''; flex: 1; height: 1px; background: #f1f5f9; }
     .answer { line-height: 1.75; font-size: 0.97rem; color: #334155; }
     .answer p { margin: 0 0 10px 0; }
     .answer ul, .answer ol { padding-left: 1.5rem; margin: 0 0 10px 0; }
@@ -324,24 +194,13 @@
     .sources-wrap { margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
     .sources-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 10px; }
     .source-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      background: #f1f5f9;
-      color: #475569;
-      padding: 5px 12px;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      margin-right: 6px;
-      margin-bottom: 6px;
-      border: 1px solid #e2e8f0;
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #f1f5f9; color: #475569; padding: 5px 12px;
+      border-radius: 999px; font-size: 0.8rem; margin-right: 6px;
+      margin-bottom: 6px; border: 1px solid #e2e8f0;
     }
 
-    .empty-state {
-      text-align: center;
-      padding: 60px 0;
-      color: #94a3b8;
-    }
+    .empty-state { text-align: center; padding: 60px 0; color: #94a3b8; }
     .empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; opacity: 0.4; }
     .empty-state p { font-size: 1rem; }
   </style>
@@ -357,9 +216,7 @@
           <polyline points="14 2 14 8 20 8"/>
         </svg>
         Files
-        {% if uploaded_files %}
-          <span class="badge">{{ uploaded_files|length }}</span>
-        {% endif %}
+        <span class="badge" id="file-count-badge">{{ uploaded_files|length }}</span>
       </button>
     </div>
   </header>
@@ -370,57 +227,56 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <h2>Upload Document</h2>
-        <form method="post" action="/upload" enctype="multipart/form-data">
-          <div class="upload-zone">
-            <input type="file" name="document" accept=".txt,.pdf,.docx" required>
-            <button type="submit" class="btn-upload">Upload & Ingest</button>
-          </div>
-        </form>
+        <div class="upload-zone">
+          <input type="file" id="upload-input" accept=".txt,.pdf,.docx">
+          <button class="btn-upload" id="upload-btn" onclick="doUpload()">Upload &amp; Ingest</button>
+        </div>
+        <div class="upload-msg" id="upload-msg"></div>
       </div>
 
       <div class="sidebar-files">
         <div class="sidebar-files-title">Uploaded Files</div>
-        {% if uploaded_files %}
-          {% for fname in uploaded_files %}
-          <div class="file-card">
-            <div class="file-card-name">
-              <div class="file-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                </svg>
+        <div id="file-list">
+          {% if uploaded_files %}
+            {% for fname in uploaded_files %}
+            {% set status = ingest_status.get(fname, '') %}
+            {% set card_id = loop.index %}
+            <div class="file-card" id="fc-{{ card_id }}" data-fname="{{ fname | e }}">
+              <div class="file-card-name">
+                <div class="file-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </div>
+                {{ fname }}
               </div>
-              {{ fname }}
-            </div>
-            {% if ingest_status.get(fname) == 'processing' %}
-              <div class="badge-processing" id="status-{{ loop.index }}">
-                <span class="spinner"></span> Indexing...
+              {% if status == 'processing' %}
+                <div class="badge-processing" id="badge-{{ fname | e }}"><span class="spinner"></span> Indexing…</div>
+              {% elif status == 'done' %}
+                <div class="badge-done" id="badge-{{ fname | e }}">&#10003; Indexed</div>
+              {% elif status %}
+                <div class="badge-error" id="badge-{{ fname | e }}">&#x26A0; Error</div>
+              {% endif %}
+              <div class="file-actions" style="margin-top:8px">
+                <button class="btn-sm btn-del" onclick="doDelete('{{ fname | e }}')">Delete</button>
+                <label style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+                  <input type="file" accept=".txt,.pdf,.docx" class="replace-file" id="rep-{{ fname | e }}">
+                  <button class="btn-sm btn-rep" onclick="doReplace('{{ fname | e }}')">Replace</button>
+                </label>
               </div>
-            {% elif ingest_status.get(fname) == 'done' %}
-              <div class="badge-done">&#10003; Indexed</div>
-            {% endif %}
-            <div class="file-actions">
-              <form method="post" action="/delete" style="margin:0">
-                <input type="hidden" name="filename" value="{{ fname }}">
-                <button type="submit" class="btn-sm btn-del" onclick="return confirm('Delete {{ fname }}?')">Delete</button>
-              </form>
-              <form method="post" action="/replace" enctype="multipart/form-data" style="margin:0;display:flex;gap:5px;align-items:center;flex-wrap:wrap">
-                <input type="hidden" name="filename" value="{{ fname }}">
-                <input type="file" name="document" accept=".txt,.pdf,.docx" required class="replace-file">
-                <button type="submit" class="btn-sm btn-rep">Replace</button>
-              </form>
             </div>
-          </div>
-          {% endfor %}
-        {% else %}
-          <div class="no-files">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5" style="width:36px;height:36px;margin-bottom:8px">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
-            <br>No files uploaded yet
-          </div>
-        {% endif %}
+            {% endfor %}
+          {% else %}
+            <div class="no-files" id="no-files-msg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5" style="width:36px;height:36px;margin-bottom:8px">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <br>No files uploaded yet
+            </div>
+          {% endif %}
+        </div>
       </div>
     </aside>
 
@@ -428,77 +284,280 @@
     <main class="main">
       <div class="main-inner">
 
-        {% if upload_status %}
-          <div class="status-msg">&#10003; {{ upload_status }}</div>
-        {% endif %}
+        <div class="search-box">
+          <input type="text" id="query-input" placeholder="Ask a question about your documents..." autocomplete="off">
+          <button class="btn-search" id="search-btn" onclick="doSearch()">Search</button>
+        </div>
 
-        <form method="post" class="search-box">
-          <input type="text" name="query" placeholder="Ask a question about your documents..." value="{{ query }}" required>
-          <button type="submit" class="btn-search">Search</button>
-        </form>
-
-        {% if answer %}
-          <div class="card">
-            <div class="card-title">Answer</div>
-            <div class="answer" id="answer-content" data-raw="{{ answer | e }}"></div>
-            <script>
-              (function() {
-                var el = document.getElementById('answer-content');
-                var raw = el.getAttribute('data-raw');
-                if (window.marked) {
-                  el.innerHTML = marked.parse(raw);
-                } else {
-                  el.style.whiteSpace = 'pre-wrap';
-                  el.textContent = raw;
-                }
-              })();
-            </script>
-            {% if chunks %}
-              <div class="sources-wrap">
-                <div class="sources-label">Sources</div>
-                {% set unique_sources = [] %}
-                {% for c in chunks %}
-                  {% if c.source not in unique_sources %}{% set _ = unique_sources.append(c.source) %}{% endif %}
-                {% endfor %}
-                {% for src in unique_sources %}
-                  <span class="source-pill">📄 {{ src }}</span>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-
-        {% elif query %}
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <p>No relevant data found. Try rephrasing your question.</p>
-          </div>
-        {% else %}
+        <div id="result-area">
           <div class="empty-state">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
             <p>Upload a document and ask a question to get started.</p>
           </div>
-        {% endif %}
+        </div>
 
       </div>
     </main>
   </div>
 
+  <script type="application/json" id="ingest-status-data">{{ ingest_status | tojson }}</script>
   <script>
+    // ── Sidebar toggle ──────────────────────────────────────────────
     function toggleSidebar() {
       document.getElementById('sidebar').classList.toggle('hidden');
     }
 
-    // Poll ingest status if any file is processing
-    (function() {
-      var processingFiles = {{ ingest_status | tojson }};
-      var polling = Object.values(processingFiles).some(s => s === 'processing');
-      if (polling) {
-        setTimeout(function() { location.reload(); }, 3000);
+    // ── Search (AJAX) ───────────────────────────────────────────────
+    const queryInput = document.getElementById('query-input');
+    const searchBtn  = document.getElementById('search-btn');
+    const resultArea = document.getElementById('result-area');
+
+    queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+    async function doSearch() {
+      const query = queryInput.value.trim();
+      if (!query) return;
+
+      searchBtn.disabled = true;
+      searchBtn.textContent = 'Searching…';
+
+      // Show skeleton while waiting
+      resultArea.innerHTML = `
+        <div class="card">
+          <div class="card-title">Answer</div>
+          <div class="skeleton skeleton-line full"></div>
+          <div class="skeleton skeleton-line med"></div>
+          <div class="skeleton skeleton-line short"></div>
+        </div>`;
+
+      try {
+        const res  = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        const data = await res.json();
+
+        if (data.error) {
+          resultArea.innerHTML = `<div class="card"><p style="color:#dc2626">${data.error}</p></div>`;
+        } else if (data.answer) {
+          const answerHtml = window.marked ? marked.parse(data.answer) : data.answer.replace(/\n/g, '<br>');
+          const uniqueSources = [...new Set((data.chunks || []).map(c => c.source))];
+          const sourcePills   = uniqueSources.map(s => `<span class="source-pill">📄 ${s}</span>`).join('');
+          resultArea.innerHTML = `
+            <div class="card">
+              <div class="card-title">Answer</div>
+              <div class="answer">${answerHtml}</div>
+              ${uniqueSources.length ? `
+              <div class="sources-wrap">
+                <div class="sources-label">Sources</div>
+                ${sourcePills}
+              </div>` : ''}
+            </div>`;
+        } else {
+          resultArea.innerHTML = `
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <p>No relevant data found. Try rephrasing your question.</p>
+            </div>`;
+        }
+      } catch (err) {
+        resultArea.innerHTML = `<div class="card"><p style="color:#dc2626">Network error. Please try again.</p></div>`;
       }
+
+      searchBtn.disabled = false;
+      searchBtn.textContent = 'Search';
+    }
+
+    // ── Upload (AJAX) ───────────────────────────────────────────────
+    const uploadBtn = document.getElementById('upload-btn');
+    const uploadMsg = document.getElementById('upload-msg');
+
+    async function doUpload() {
+      const fileInput = document.getElementById('upload-input');
+      if (!fileInput.files.length) {
+        showUploadMsg('Please select a file first.', 'error');
+        return;
+      }
+
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading…';
+      hideUploadMsg();
+
+      const fd = new FormData();
+      fd.append('document', fileInput.files[0]);
+
+      try {
+        const res  = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+
+        if (data.error) {
+          showUploadMsg(data.error, 'error');
+        } else {
+          showUploadMsg(`'${data.filename}' uploaded. Indexing in background…`, 'info');
+          addFileCard(data.filename);
+          fileInput.value = '';
+          startPolling(data.filename);
+        }
+      } catch (err) {
+        showUploadMsg('Upload failed. Please try again.', 'error');
+      }
+
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = 'Upload & Ingest';
+    }
+
+    function showUploadMsg(msg, type) {
+      uploadMsg.textContent = msg;
+      uploadMsg.className = 'upload-msg ' + type;
+    }
+    function hideUploadMsg() {
+      uploadMsg.className = 'upload-msg';
+      uploadMsg.textContent = '';
+    }
+
+    // ── File card helpers ───────────────────────────────────────────
+    // Use filename directly as ID (safe for common filenames)
+    function cardElemId(fname)  { return 'fc-'    + CSS.escape(fname); }
+    function badgeElemId(fname) { return 'badge-' + fname; }
+    function repElemId(fname)   { return 'rep-'   + fname; }
+
+    function addFileCard(fname) {
+      const noMsg = document.getElementById('no-files-msg');
+      if (noMsg) noMsg.remove();
+
+      const list = document.getElementById('file-list');
+      const div  = document.createElement('div');
+      div.className = 'file-card';
+      div.id = 'fc-' + fname;
+      div.setAttribute('data-fname', fname);
+      div.innerHTML = fileCardHTML(fname, 'processing');
+      list.appendChild(div);
+
+      const badge = document.getElementById('file-count-badge');
+      badge.textContent = parseInt(badge.textContent || '0') + 1;
+    }
+
+    function fileCardHTML(fname, status) {
+      const esc = fname.replace(/'/g, "\\'");
+      let statusBadge = '';
+      if (status === 'processing') {
+        statusBadge = `<div class="badge-processing" id="badge-${fname}"><span class="spinner"></span> Indexing…</div>`;
+      } else if (status === 'done') {
+        statusBadge = `<div class="badge-done" id="badge-${fname}">&#10003; Indexed</div>`;
+      } else if (status && status.startsWith('error')) {
+        statusBadge = `<div class="badge-error" id="badge-${fname}">&#x26A0; Error</div>`;
+      }
+
+      return `
+        <div class="file-card-name">
+          <div class="file-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </div>
+          ${fname}
+        </div>
+        ${statusBadge}
+        <div class="file-actions" style="margin-top:8px">
+          <button class="btn-sm btn-del" onclick="doDelete('${esc}')">Delete</button>
+          <label style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+            <input type="file" accept=".txt,.pdf,.docx" class="replace-file" id="rep-${fname}">
+            <button class="btn-sm btn-rep" onclick="doReplace('${esc}')">Replace</button>
+          </label>
+        </div>`;
+    }
+
+    // ── Delete (AJAX) ───────────────────────────────────────────────
+    async function doDelete(fname) {
+      if (!confirm(`Delete '${fname}'?`)) return;
+
+      const res  = await fetch('/api/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: fname })
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        // Find card by data-fname attribute (handles special chars safely)
+        const card = document.querySelector(`[data-fname="${fname}"]`);
+        if (card) card.remove();
+
+        const badge = document.getElementById('file-count-badge');
+        const count = Math.max(0, parseInt(badge.textContent || '1') - 1);
+        badge.textContent = count;
+
+        if (!document.querySelector('#file-list .file-card')) {
+          document.getElementById('file-list').innerHTML =
+            `<div class="no-files" id="no-files-msg">No files uploaded yet</div>`;
+        }
+      }
+    }
+
+    // ── Replace (AJAX) ──────────────────────────────────────────────
+    async function doReplace(fname) {
+      const input = document.getElementById('rep-' + fname);
+      if (!input || !input.files.length) { alert('Select a file first.'); return; }
+
+      const fd = new FormData();
+      fd.append('document', input.files[0]);
+      fd.append('filename', fname);
+
+      const res  = await fetch('/api/replace', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (data.error) { alert(data.error); return; }
+
+      const badgeEl = document.getElementById('badge-' + fname);
+      if (badgeEl) {
+        badgeEl.className = 'badge-processing';
+        badgeEl.innerHTML = '<span class="spinner"></span> Indexing…';
+      }
+      startPolling(fname);
+    }
+
+    // ── Ingest status polling ───────────────────────────────────────
+    const pollingTimers = {};
+
+    function startPolling(fname) {
+      if (pollingTimers[fname]) return;
+      pollingTimers[fname] = setInterval(async () => {
+        try {
+          const res  = await fetch(`/ingest_status/${encodeURIComponent(fname)}`);
+          const data = await res.json();
+
+          if (data.status !== 'processing') {
+            clearInterval(pollingTimers[fname]);
+            delete pollingTimers[fname];
+
+            const badgeEl = document.getElementById('badge-' + fname);
+            if (badgeEl) {
+              if (data.status === 'done') {
+                badgeEl.className = 'badge-done';
+                badgeEl.innerHTML = '&#10003; Indexed';
+              } else {
+                badgeEl.className = 'badge-error';
+                badgeEl.innerHTML = '&#x26A0; Error';
+              }
+            }
+          }
+        } catch (e) { /* network blip, keep polling */ }
+      }, 2000);
+    }
+
+    // Resume polling for any files already processing on page load
+    (function() {
+      const el = document.getElementById('ingest-status-data');
+      const initialStatus = el ? JSON.parse(el.textContent) : {};
+      Object.entries(initialStatus).forEach(([fname, status]) => {
+        if (status === 'processing') startPolling(fname);
+      });
     })();
   </script>
 
