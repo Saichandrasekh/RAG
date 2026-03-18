@@ -36,16 +36,6 @@ collection = chroma_client.get_or_create_collection(
     embedding_function=sentence_transformer_ef
 )
 
-# Auto re-ingest if data files exist but index is empty
-if collection.count() == 0 and os.path.exists(DATA_DIR) and os.listdir(DATA_DIR):
-    print("Index is empty but data files found. Re-ingesting...")
-    try:
-        from ingest import ingest_new_files
-        ingest_new_files()
-        print("Re-ingestion complete.")
-    except Exception as e:
-        print(f"Re-ingestion failed: {e}")
-
 
 def is_allowed_file(filename):
     return os.path.splitext(filename.lower())[1] in ALLOWED_EXTENSIONS
