@@ -6,275 +6,452 @@
   <title>Document Retrieval QA</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
-    :root {
-      --bg-color: #f8fafc;
-      --text-color: #1e293b;
-      --primary-color: #3b82f6;
-      --secondary-color: #e2e8f0;
-      --card-bg: #ffffff;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      margin: 0;
-      padding: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #1e293b;
+      color: white;
+      padding: 0 28px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    header h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    header h1 span { color: #60a5fa; }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+
+    .files-toggle-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: #334155;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .files-toggle-btn:hover { background: #475569; color: white; }
+    .files-toggle-btn svg { width: 16px; height: 16px; }
+    .badge {
+      background: #3b82f6;
+      color: white;
+      border-radius: 999px;
+      padding: 1px 7px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── Drawer Sidebar ── */
+    .sidebar {
+      width: 300px;
+      background: white;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      transition: margin-left 0.3s ease;
+      height: calc(100vh - 60px);
+      position: sticky;
+      top: 60px;
+      flex-shrink: 0;
+      overflow-y: auto;
+    }
+    .sidebar.hidden { margin-left: -300px; }
+
+    .sidebar-header {
+      padding: 20px 20px 14px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .sidebar-header h2 {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #94a3b8;
+      margin-bottom: 14px;
+    }
+
+    /* Upload area */
+    .upload-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 14px;
+      background: #f8fafc;
+      transition: border-color 0.2s;
+    }
+    .upload-zone:hover { border-color: #3b82f6; }
+    .upload-zone input[type="file"] {
+      width: 100%;
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-bottom: 10px;
+    }
+    .upload-zone input[type="file"]::file-selector-button {
+      padding: 5px 10px;
+      background: #e2e8f0;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    .btn-upload {
+      width: 100%;
+      padding: 10px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-upload:hover { background: #2563eb; }
+
+    /* File list */
+    .sidebar-files {
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+    .sidebar-files-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+
+    .file-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      transition: box-shadow 0.2s;
+    }
+    .file-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+    .file-card-name {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.83rem;
+      color: #1e293b;
+      font-weight: 500;
+      margin-bottom: 8px;
+      word-break: break-all;
+    }
+    .file-icon {
+      width: 28px; height: 28px;
+      background: #dbeafe;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .file-icon svg { width: 14px; height: 14px; color: #3b82f6; }
+    .file-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .btn-sm {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.76rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-del { background: #fee2e2; color: #dc2626; }
+    .btn-del:hover { background: #fecaca; }
+    .btn-rep { background: #fef9c3; color: #92400e; }
+    .btn-rep:hover { background: #fef08a; }
+    .replace-file { font-size: 0.74rem; max-width: 100px; }
+
+    .no-files {
+      text-align: center;
+      padding: 24px 0;
+      color: #94a3b8;
+      font-size: 0.85rem;
+    }
+
+    /* ── Main ── */
+    .main {
+      flex: 1;
+      padding: 36px 40px;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
-      min-height: 100vh;
     }
-    header {
-      width: 100%;
-      background: var(--card-bg);
-      padding: 24px 0;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      text-align: center;
-      margin-bottom: 40px;
-    }
-    h1 {
-      margin: 0;
-      font-size: 1.5rem;
-      font-weight: 600;
-      color: var(--text-color);
-    }
-    .container {
-      width: 100%;
-      max-width: 768px;
-      padding: 0 20px;
-    }
-    .search-box {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 40px;
-    }
-    .upload-box {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 20px;
-      align-items: center;
-    }
-    input[type="text"] {
-      flex: 1;
-      padding: 16px 20px;
-      border: 1px solid var(--secondary-color);
-      border-radius: 12px;
-      font-size: 1rem;
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    input[type="text"]:focus {
-      border-color: var(--primary-color);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-    }
-    input[type="file"] {
-      flex: 1;
-      padding: 12px;
-      border: 1px solid var(--secondary-color);
-      border-radius: 12px;
-      background: #fff;
-    }
-    button {
-      padding: 16px 28px;
-      background-color: var(--primary-color);
-      color: white;
-      border: none;
-      border-radius: 12px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
-    button:hover {
-      background-color: #2563eb;
-    }
-    .card {
-      background: var(--card-bg);
-      border-radius: 16px;
-      padding: 32px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-      margin-bottom: 24px;
-    }
-    .card h3 {
-      margin-top: 0;
-      margin-bottom: 20px;
-      font-size: 1.25rem;
-      color: var(--primary-color);
-      border-bottom: 1px solid var(--secondary-color);
-      padding-bottom: 10px;
-    }
-    .answer {
-      line-height: 1.7;
-      font-size: 1.05rem;
-    }
-    .answer p { margin: 0 0 10px 0; }
-    .answer ul, .answer ol { padding-left: 1.5rem; margin: 0 0 10px 0; }
-    .answer li { margin-bottom: 4px; }
-    .answer h1, .answer h2, .answer h3 { margin: 16px 0 8px 0; font-size: 1.1rem; }
-    .sources-title {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-top: 32px;
-      margin-bottom: 16px;
-      color: #64748b;
-    }
-    .source-pill {
-      display: inline-block;
-      background-color: #f1f5f9;
-      color: #475569;
-      padding: 6px 12px;
-      border-radius: 999px;
-      font-size: 0.875rem;
-      margin-right: 8px;
-      margin-bottom: 8px;
-      border: 1px solid #e2e8f0;
-    }
-    .empty-state {
-      text-align: center;
-      color: #94a3b8;
-      margin-top: 60px;
-      font-size: 1.1rem;
-    }
+    .main-inner { width: 100%; max-width: 720px; }
+
     .status-msg {
-      margin-bottom: 24px;
-      padding: 12px 14px;
+      margin-bottom: 20px;
+      padding: 12px 16px;
       border-radius: 10px;
       border: 1px solid #bfdbfe;
       background: #eff6ff;
       color: #1d4ed8;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
     }
-    .file-list {
-      margin-bottom: 28px;
+
+    .search-box {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 32px;
+      background: white;
+      border-radius: 14px;
+      padding: 6px 6px 6px 18px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      border: 1px solid #e2e8f0;
     }
-    .file-list h4 {
+    .search-box:focus-within { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+    .search-box input[type="text"] {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 0.98rem;
+      color: #1e293b;
+      background: transparent;
+      padding: 8px 0;
+    }
+    .btn-search {
+      padding: 12px 24px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 10px;
       font-size: 0.95rem;
       font-weight: 600;
-      color: #64748b;
-      margin-bottom: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
     }
-    .file-row {
+    .btn-search:hover { background: #2563eb; }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.07);
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #3b82f6;
+      margin-bottom: 16px;
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 10px 14px;
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      margin-bottom: 8px;
+      gap: 8px;
     }
-    .file-row span {
+    .card-title::after {
+      content: '';
       flex: 1;
-      font-size: 0.9rem;
-      color: #334155;
+      height: 1px;
+      background: #f1f5f9;
     }
-    .btn-delete {
-      padding: 6px 14px;
-      background: #fee2e2;
-      color: #dc2626;
-      border: 1px solid #fca5a5;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
+    .answer { line-height: 1.75; font-size: 0.97rem; color: #334155; }
+    .answer p { margin: 0 0 10px 0; }
+    .answer ul, .answer ol { padding-left: 1.5rem; margin: 0 0 10px 0; }
+    .answer li { margin-bottom: 4px; }
+    .answer h1, .answer h2, .answer h3 { margin: 16px 0 8px 0; font-size: 1rem; color: #1e293b; }
+
+    .sources-wrap { margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+    .sources-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 10px; }
+    .source-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #f1f5f9;
+      color: #475569;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      margin-right: 6px;
+      margin-bottom: 6px;
+      border: 1px solid #e2e8f0;
     }
-    .btn-delete:hover { background: #fecaca; }
-    .btn-replace {
-      padding: 6px 14px;
-      background: #fef9c3;
-      color: #b45309;
-      border: 1px solid #fde68a;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 0;
+      color: #94a3b8;
     }
-    .btn-replace:hover { background: #fef08a; }
-    .replace-input { display: none; font-size: 0.8rem; }
+    .empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; opacity: 0.4; }
+    .empty-state p { font-size: 1rem; }
   </style>
 </head>
 <body>
 
   <header>
-    <h1>RAG - Document Retrieval QA </h1>
+    <h1>RAG <span>·</span> Document Retrieval QA</h1>
+    <div class="header-right">
+      <button class="files-toggle-btn" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        Files
+        {% if uploaded_files %}
+          <span class="badge">{{ uploaded_files|length }}</span>
+        {% endif %}
+      </button>
+    </div>
   </header>
 
-  <div class="container">
-    <form method="post" action="/upload" enctype="multipart/form-data" class="upload-box">
-      <input type="file" name="document" accept=".txt,.pdf,.docx" required>
-      <button type="submit">Upload & Ingest</button>
-    </form>
+  <div class="layout">
 
-    {% if upload_status %}
-      <div class="status-msg">{{ upload_status }}</div>
-    {% endif %}
-
-    {% if uploaded_files %}
-    <div class="file-list">
-      <h4>Uploaded Files</h4>
-      {% for fname in uploaded_files %}
-      <div class="file-row">
-        <span>📄 {{ fname }}</span>
-
-        <form method="post" action="/delete" style="margin:0">
-          <input type="hidden" name="filename" value="{{ fname }}">
-          <button type="submit" class="btn-delete" onclick="return confirm('Delete {{ fname }}?')">Delete</button>
-        </form>
-
-        <form method="post" action="/replace" enctype="multipart/form-data" style="margin:0;display:flex;gap:6px;align-items:center">
-          <input type="hidden" name="filename" value="{{ fname }}">
-          <input type="file" name="document" accept=".txt,.pdf,.docx" required style="font-size:0.8rem;max-width:160px">
-          <button type="submit" class="btn-replace">Replace</button>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h2>Upload Document</h2>
+        <form method="post" action="/upload" enctype="multipart/form-data">
+          <div class="upload-zone">
+            <input type="file" name="document" accept=".txt,.pdf,.docx" required>
+            <button type="submit" class="btn-upload">Upload & Ingest</button>
+          </div>
         </form>
       </div>
-      {% endfor %}
-    </div>
-    {% endif %}
 
-    <form method="post" class="search-box">
-      <input type="text" name="query" placeholder="Ask a question about your documents..." value="{{ query }}" required>
-      <button type="submit">Search</button>
-    </form>
-
-    {% if answer %}
-      <div class="card">
-        <h3>Answer</h3>
-        <div class="answer" id="answer-content" data-raw="{{ answer | e }}"></div>
-        <script>
-          (function() {
-            var el = document.getElementById('answer-content');
-            var raw = el.getAttribute('data-raw');
-            if (window.marked) {
-              el.innerHTML = marked.parse(raw);
-            } else {
-              el.style.whiteSpace = 'pre-wrap';
-              el.textContent = raw;
-            }
-          })();
-        </script>
-        
-        {% if chunks %}
-          <div class="sources-title">Sources Used</div>
-          <div>
-            {% set unique_sources = [] %}
-            {% for c in chunks %}
-              {% if c.source not in unique_sources %}
-                {% set _ = unique_sources.append(c.source) %}
-              {% endif %}
-            {% endfor %}
-            {% for src in unique_sources %}
-              <div class="source-pill">📄 {{ src }}</div>
-            {% endfor %}
+      <div class="sidebar-files">
+        <div class="sidebar-files-title">Uploaded Files</div>
+        {% if uploaded_files %}
+          {% for fname in uploaded_files %}
+          <div class="file-card">
+            <div class="file-card-name">
+              <div class="file-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              {{ fname }}
+            </div>
+            <div class="file-actions">
+              <form method="post" action="/delete" style="margin:0">
+                <input type="hidden" name="filename" value="{{ fname }}">
+                <button type="submit" class="btn-sm btn-del" onclick="return confirm('Delete {{ fname }}?')">Delete</button>
+              </form>
+              <form method="post" action="/replace" enctype="multipart/form-data" style="margin:0;display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+                <input type="hidden" name="filename" value="{{ fname }}">
+                <input type="file" name="document" accept=".txt,.pdf,.docx" required class="replace-file">
+                <button type="submit" class="btn-sm btn-rep">Replace</button>
+              </form>
+            </div>
           </div>
-
+          {% endfor %}
+        {% else %}
+          <div class="no-files">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5" style="width:36px;height:36px;margin-bottom:8px">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <br>No files uploaded yet
+          </div>
         {% endif %}
       </div>
-    {% elif query %}
-      <div class="empty-state">
-        <p>No relevant data found for your query. Try rephrasing.</p>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="main-inner">
+
+        {% if upload_status %}
+          <div class="status-msg">&#10003; {{ upload_status }}</div>
+        {% endif %}
+
+        <form method="post" class="search-box">
+          <input type="text" name="query" placeholder="Ask a question about your documents..." value="{{ query }}" required>
+          <button type="submit" class="btn-search">Search</button>
+        </form>
+
+        {% if answer %}
+          <div class="card">
+            <div class="card-title">Answer</div>
+            <div class="answer" id="answer-content" data-raw="{{ answer | e }}"></div>
+            <script>
+              (function() {
+                var el = document.getElementById('answer-content');
+                var raw = el.getAttribute('data-raw');
+                if (window.marked) {
+                  el.innerHTML = marked.parse(raw);
+                } else {
+                  el.style.whiteSpace = 'pre-wrap';
+                  el.textContent = raw;
+                }
+              })();
+            </script>
+            {% if chunks %}
+              <div class="sources-wrap">
+                <div class="sources-label">Sources</div>
+                {% set unique_sources = [] %}
+                {% for c in chunks %}
+                  {% if c.source not in unique_sources %}{% set _ = unique_sources.append(c.source) %}{% endif %}
+                {% endfor %}
+                {% for src in unique_sources %}
+                  <span class="source-pill">📄 {{ src }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+
+        {% elif query %}
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <p>No relevant data found. Try rephrasing your question.</p>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <p>Upload a document and ask a question to get started.</p>
+          </div>
+        {% endif %}
+
       </div>
-    {% endif %}
+    </main>
   </div>
+
+  <script>
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('hidden');
+    }
+  </script>
 
 </body>
 </html>
