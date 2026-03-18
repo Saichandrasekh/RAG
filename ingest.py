@@ -34,19 +34,22 @@ def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR, collection=None):
             embedding_function=sentence_transformer_ef,
         )
 
-    log("[INGEST] Fetching already indexed sources from ChromaDB...")
-    existing_sources = set()
-    existing_docs = collection.get(include=["metadatas"])
-    if existing_docs and existing_docs["metadatas"]:
-        for meta in existing_docs["metadatas"]:
-            if meta and "source" in meta:
-                existing_sources.add(meta["source"])
-
-    log(f"[INGEST] Already indexed: {len(existing_sources)} sources | Total chunks in DB: {collection.count()}")
+    log(f"[INGEST] Total chunks in DB: {collection.count()}")
 
     all_files = os.listdir(data_dir)
-    pending = [f for f in all_files if f not in existing_sources]
-    log(f"[INGEST] Total files in data dir: {len(all_files)} | Pending (not yet indexed): {len(pending)}")
+    pending = []
+    for f in all_files:
+        try:
+            result = collection.get(where={"source": f}, limit=1, include=["metadatas"])
+            if result and result["ids"]:
+                log(f"[INGEST] Already indexed, skipping: {f}")
+            else:
+                pending.append(f)
+        except Exception as e:
+            log(f"[INGEST] Error checking index for {f}: {e} — will re-index")
+            pending.append(f)
+
+    log(f"[INGEST] Total files: {len(all_files)} | Pending: {len(pending)}")
 
     if not pending:
         log("[INGEST] Nothing to do. All files already indexed.")
