@@ -42,7 +42,7 @@ ingest_status = {}
 def run_ingest_background(filename):
     ingest_status[filename] = "processing"
     try:
-        ingest_new_files()
+        ingest_new_files(collection=collection)
         ingest_status[filename] = "done"
     except Exception as e:
         ingest_status[filename] = f"error: {e}"
@@ -175,6 +175,11 @@ def search(query, top_k=None):
     initial_k = max(top_k * 4, 20)
     max_distance = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "1.4"))
 
+    total_docs = collection.count()
+    if total_docs == 0:
+        return {"answer": "No documents have been indexed yet. Please upload a file first.", "chunks": []}
+    initial_k = min(initial_k, total_docs)
+
     results = collection.query(
         query_texts=[query],
         n_results=initial_k
@@ -216,58 +221,50 @@ def search(query, top_k=None):
         "chunks": chunks
     }
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET"])
 def index():
-    query = ""
-    answer = ""
-    chunks = []
-    upload_status = request.args.get("upload_status", "")
-
-    if request.method == "POST":
-        query = request.form.get("query", "").strip()
-        if query:
-            result = search(query)
-            answer = result.get("answer", "")
-            chunks = result.get("chunks", [])
-
     uploaded_files = sorted(os.listdir(DATA_DIR)) if os.path.exists(DATA_DIR) else []
-
     return render_template(
         "index.html",
-        query=query,
-        answer=answer,
-        chunks=chunks,
-        upload_status=upload_status,
         uploaded_files=uploaded_files,
         ingest_status=ingest_status
     )
 
 
-@app.route("/upload", methods=["POST"])
+@app.route("/api/search", methods=["POST"])
+def api_search():
+    data = request.get_json()
+    query = (data or {}).get("query", "").strip()
+    if not query:
+        return jsonify({"error": "Empty query"}), 400
+    result = search(query)
+    return jsonify(result)
+
+
+@app.route("/api/upload", methods=["POST"])
 def upload():
     file = request.files.get("document")
     if file is None or not file.filename:
-        return redirect(url_for("index", upload_status="Please select a file first."))
+        return jsonify({"error": "Please select a file first."}), 400
 
     filename = secure_filename(file.filename)
     if not filename:
-        return redirect(url_for("index", upload_status="Invalid filename."))
+        return jsonify({"error": "Invalid filename."}), 400
 
     if not is_allowed_file(filename):
-        return redirect(url_for("index", upload_status="Only .txt, .pdf, and .docx files are supported."))
+        return jsonify({"error": "Only .txt, .pdf, and .docx files are supported."}), 400
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
     if os.path.exists(os.path.join(DATA_DIR, filename)):
-        return redirect(url_for("index", upload_status=f"'{filename}' already exists. Use Replace to update it."))
+        return jsonify({"error": f"'{filename}' already exists. Use Replace to update it."}), 409
 
     file.save(os.path.join(DATA_DIR, filename))
 
-    # Start ingestion in background thread
     thread = threading.Thread(target=run_ingest_background, args=(filename,), daemon=True)
     thread.start()
 
-    return redirect(url_for("index", upload_status=f"Uploaded '{filename}'. Indexing in background..."))
+    return jsonify({"filename": filename, "status": "processing"})
 
 
 @app.route("/ingest_status/<filename>")
@@ -276,25 +273,24 @@ def get_ingest_status(filename):
     return jsonify({"filename": filename, "status": status})
 
 
-@app.route("/delete", methods=["POST"])
+@app.route("/api/delete", methods=["POST"])
 def delete():
-    filename = request.form.get("filename")
+    data = request.get_json()
+    filename = (data or {}).get("filename")
     if filename:
         delete_file_and_index(filename)
         ingest_status.pop(filename, None)
-        message = f"Deleted '{filename}'."
-    else:
-        message = "No file specified."
-    return redirect(url_for("index", upload_status=message))
+        return jsonify({"ok": True})
+    return jsonify({"error": "No file specified."}), 400
 
 
-@app.route("/replace", methods=["POST"])
+@app.route("/api/replace", methods=["POST"])
 def replace():
     file = request.files.get("document")
     filename = request.form.get("filename")
 
     if not file or not filename:
-        return redirect(url_for("index", upload_status="Missing file or filename."))
+        return jsonify({"error": "Missing file or filename."}), 400
 
     delete_file_and_index(filename)
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -303,7 +299,7 @@ def replace():
     thread = threading.Thread(target=run_ingest_background, args=(filename,), daemon=True)
     thread.start()
 
-    return redirect(url_for("index", upload_status=f"Replaced '{filename}'. Indexing in background..."))
+    return jsonify({"filename": filename, "status": "processing"})
 
 @app.errorhandler(413)
 def file_too_large(_):
