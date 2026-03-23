@@ -8,7 +8,7 @@ env:
   ACR_LOGIN_SERVER: policyragacr.azurecr.io
   IMAGE_NAME: policyragacr.azurecr.io/policyrag
   CONTAINER_APP: policyrag
-  RESOURCE_GROUP: policyrag-rg
+  RESOURCE_GROUP: policy_rag
 
 jobs:
   build-and-deploy:
