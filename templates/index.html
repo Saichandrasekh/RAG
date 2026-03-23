@@ -113,9 +113,21 @@
     .btn-sm { padding: 4px 10px; border-radius: 6px; font-size: 0.76rem; font-weight: 600; cursor: pointer; border: none; }
     .btn-del { background: #fee2e2; color: #dc2626; }
     .btn-del:hover { background: #fecaca; }
-    .btn-rep { background: #fef9c3; color: #92400e; }
-    .btn-rep:hover { background: #fef08a; }
-    .replace-file { font-size: 0.74rem; max-width: 100px; }
+    /* ── Toast notification ── */
+    #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast {
+      display: flex; align-items: center; gap: 10px;
+      background: #1e293b; color: white;
+      padding: 12px 18px; border-radius: 10px;
+      font-size: 0.88rem; font-weight: 500;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      animation: slideIn 0.3s ease;
+      max-width: 320px;
+    }
+    .toast.success { border-left: 4px solid #22c55e; }
+    .toast.error   { border-left: 4px solid #ef4444; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
 
     .no-files { text-align: center; padding: 24px 0; color: #94a3b8; font-size: 0.85rem; }
 
@@ -260,10 +272,6 @@
               {% endif %}
               <div class="file-actions" style="margin-top:8px">
                 <button class="btn-sm btn-del" onclick="doDelete('{{ fname | e }}')">Delete</button>
-                <label style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
-                  <input type="file" accept=".txt,.pdf,.docx" class="replace-file" id="rep-{{ fname | e }}">
-                  <button class="btn-sm btn-rep" onclick="doReplace('{{ fname | e }}')">Replace</button>
-                </label>
               </div>
             </div>
             {% endfor %}
@@ -302,6 +310,7 @@
     </main>
   </div>
 
+  <div id="toast-container"></div>
   <script type="application/json" id="ingest-status-data">{{ ingest_status | tojson }}</script>
   <script>
     // ── Sidebar toggle ──────────────────────────────────────────────
@@ -495,10 +504,6 @@
         ${statusBadge}
         <div class="file-actions" style="margin-top:8px">
           <button class="btn-sm btn-del" onclick="doDelete('${esc}')">Delete</button>
-          <label style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
-            <input type="file" accept=".txt,.pdf,.docx" class="replace-file" id="rep-${fname}">
-            <button class="btn-sm btn-rep" onclick="doReplace('${esc}')">Replace</button>
-          </label>
         </div>`;
     }
 
@@ -529,55 +534,55 @@
       }
     }
 
-    // ── Replace (AJAX) ──────────────────────────────────────────────
-    async function doReplace(fname) {
-      const input = document.getElementById('rep-' + fname);
-      if (!input || !input.files.length) { alert('Select a file first.'); return; }
-
-      const fd = new FormData();
-      fd.append('document', input.files[0]);
-      fd.append('filename', fname);
-
-      const res  = await fetch('/api/replace', { method: 'POST', body: fd });
-      const data = await res.json();
-
-      if (data.error) { alert(data.error); return; }
-
-      const badgeEl = document.getElementById('badge-' + fname);
-      if (badgeEl) {
-        badgeEl.className = 'badge-processing';
-        badgeEl.innerHTML = '<span class="spinner"></span> Indexing…';
-      }
-      startPolling(fname);
+    // ── Toast notification ──────────────────────────────────────────
+    function showToast(msg, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span>${type === 'success' ? '✅' : '❌'}</span><span>${msg}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease forwards';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
     }
 
     // ── Ingest status polling ───────────────────────────────────────
-    const pollingTimers = {};
+    const pollingTimers  = {};
+    const pollingStarted = {};
+    const INGEST_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes max wait
 
     function startPolling(fname) {
       if (pollingTimers[fname]) return;
+      pollingStarted[fname] = Date.now();
+
       pollingTimers[fname] = setInterval(async () => {
         try {
           const res  = await fetch(`/ingest_status/${encodeURIComponent(fname)}`);
           const data = await res.json();
+          const elapsed = Date.now() - pollingStarted[fname];
 
-          if (data.status !== 'processing') {
+          if (data.status === 'done') {
             clearInterval(pollingTimers[fname]);
             delete pollingTimers[fname];
-
             const badgeEl = document.getElementById('badge-' + fname);
-            if (badgeEl) {
-              if (data.status === 'done') {
-                badgeEl.className = 'badge-done';
-                badgeEl.innerHTML = '&#10003; Indexed';
-              } else {
-                badgeEl.className = 'badge-error';
-                badgeEl.innerHTML = '&#x26A0; Error';
-              }
+            if (badgeEl) { badgeEl.className = 'badge-done'; badgeEl.innerHTML = '&#10003; Indexed'; }
+            showToast(`'${fname}' indexed successfully!`, 'success');
+
+          } else if (data.status && data.status.startsWith('error')) {
+            // Don't immediately show error — large files take long.
+            // Only show error if timeout exceeded.
+            if (elapsed > INGEST_TIMEOUT_MS) {
+              clearInterval(pollingTimers[fname]);
+              delete pollingTimers[fname];
+              const badgeEl = document.getElementById('badge-' + fname);
+              if (badgeEl) { badgeEl.className = 'badge-error'; badgeEl.innerHTML = '&#x26A0; Error'; }
+              showToast(`Failed to index '${fname}'. Please delete and re-upload.`, 'error');
             }
+            // else: keep showing Indexing... spinner — thread may still be running
           }
         } catch (e) { /* network blip, keep polling */ }
-      }, 2000);
+      }, 3000);
     }
 
     // Resume polling for any files already processing on page load
