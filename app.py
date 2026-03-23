@@ -4,13 +4,15 @@ from chromadb.utils import embedding_functions
 import os
 import re
 import json
+import shutil
 import threading
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
 from ingest import ingest_new_files, DATA_DIR
-from blob_sync import download_index, upload_index
+from utils import is_audio_video, extract_audio, split_audio_for_whisper, chunk_transcript
+from blob_sync import download_index, upload_index, download_images, upload_images
 
 # ── BM25 ranking (optional dependency for hybrid search) ────────────────────
 try:
@@ -37,7 +39,7 @@ openai_client = OpenAI(
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
-ALLOWED_EXTENSIONS = {".txt", ".pdf", ".docx"}
+ALLOWED_EXTENSIONS = {".txt", ".pdf", ".docx", ".mp4", ".mp3", ".wav", ".m4a", ".webm"}
 
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "i",
@@ -54,6 +56,8 @@ if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
         logger.info("[BLOB] Index restored from Blob Storage.")
     else:
         logger.info("[BLOB] No index in Blob — will start fresh and build on first ingest.")
+    # Also download extracted images
+    download_images()
 else:
     logger.info("[BLOB] AZURE_STORAGE_CONNECTION_STRING not set — skipping Blob sync (local mode).")
 
@@ -72,18 +76,121 @@ logger.info(f"ChromaDB ready. Total chunks in index: {collection.count()}")
 ingest_status = {}
 
 
+# ── Audio/Video transcription ─────────────────────────────────────────────────
+def transcribe_file(file_path, filename):
+    """Transcribe an audio/video file using Groq Whisper API.
+    Returns list of transcript chunks as (text, page, metadata_dict) tuples."""
+    logger.info(f"[TRANSCRIBE] Starting transcription for: {filename}")
+
+    # Extract audio (converts to WAV if needed)
+    wav_path = extract_audio(file_path)
+
+    # Split if >25MB (Groq Whisper limit)
+    segments_paths = split_audio_for_whisper(wav_path)
+
+    all_segments = []
+    time_offset = 0.0
+
+    for seg_path in segments_paths:
+        try:
+            with open(seg_path, "rb") as audio_file:
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-large-v3",
+                    file=audio_file,
+                    response_format="verbose_json",
+                )
+
+            # Extract segments with timestamps
+            if hasattr(transcript, "segments") and transcript.segments:
+                for seg in transcript.segments:
+                    all_segments.append({
+                        "text": seg.get("text", seg.text if hasattr(seg, "text") else ""),
+                        "start": (seg.get("start", 0) if isinstance(seg, dict) else getattr(seg, "start", 0)) + time_offset,
+                        "end": (seg.get("end", 0) if isinstance(seg, dict) else getattr(seg, "end", 0)) + time_offset,
+                    })
+            elif hasattr(transcript, "text") and transcript.text:
+                # Fallback: no segments, just full text
+                all_segments.append({
+                    "text": transcript.text,
+                    "start": time_offset,
+                    "end": time_offset + 600,
+                })
+
+            # Update time offset for next segment
+            if all_segments:
+                time_offset = all_segments[-1]["end"]
+
+        except Exception as e:
+            logger.error(f"[TRANSCRIBE] Whisper API failed for segment: {e}")
+            continue
+
+    # Clean up temp WAV files
+    if wav_path != file_path and os.path.exists(wav_path):
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+    for seg_path in segments_paths:
+        if seg_path != wav_path and seg_path != file_path and os.path.exists(seg_path):
+            try:
+                os.remove(seg_path)
+            except OSError:
+                pass
+
+    # Chunk the transcript
+    chunks = []
+    for idx, (text, timestamp) in enumerate(chunk_transcript(all_segments)):
+        chunks.append((text, None, {"type": "transcript", "timestamp": timestamp}))
+
+    logger.info(f"[TRANSCRIBE] Generated {len(chunks)} transcript chunks for: {filename}")
+    return chunks
+
+
 # ── Ingest background thread ──────────────────────────────────────────────────
 def run_ingest_background(filename):
     logger.info(f"[INGEST] Starting background ingest for: {filename}")
     ingest_status[filename] = "processing"
     try:
-        ingest_new_files(collection=collection)
+        file_path = os.path.join(DATA_DIR, filename)
+
+        # Handle audio/video files: transcribe first, then ingest transcript chunks
+        if is_audio_video(file_path):
+            transcript_chunks = transcribe_file(file_path, filename)
+            if transcript_chunks:
+                # Ingest transcript chunks directly
+                from ingest import BATCH_SIZE, log as ingest_log
+                batch_docs, batch_metas, batch_ids = [], [], []
+                for idx, (text, page, meta) in enumerate(transcript_chunks):
+                    batch_docs.append(text)
+                    batch_metas.append({
+                        "source": filename,
+                        "page": page if page is not None else -1,
+                        "type": meta.get("type", "transcript"),
+                        "timestamp": meta.get("timestamp", ""),
+                    })
+                    batch_ids.append(f"{filename}_transcript_{idx}")
+
+                    if len(batch_docs) >= BATCH_SIZE:
+                        collection.upsert(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
+                        batch_docs, batch_metas, batch_ids = [], [], []
+
+                if batch_docs:
+                    collection.upsert(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
+
+                logger.info(f"[INGEST] Transcribed and indexed {len(transcript_chunks)} chunks for: {filename}")
+            else:
+                logger.warning(f"[INGEST] No transcript generated for: {filename}")
+        else:
+            # Standard document ingestion
+            ingest_new_files(collection=collection)
+
         ingest_status[filename] = "done"
         logger.info(f"[INGEST] Completed successfully: {filename} | Total chunks: {collection.count()}")
         # Upload updated index to Blob Storage so it persists across deployments
         if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
             logger.info("[BLOB] Uploading updated index to Blob Storage...")
             upload_index(INDEX_DIR)
+            upload_images()
     except Exception as e:
         ingest_status[filename] = f"error: {e}"
         logger.error(f"[INGEST] Failed for {filename}: {e}", exc_info=True)
@@ -99,6 +206,12 @@ def delete_file_and_index(filename):
     if os.path.exists(file_path):
         os.remove(file_path)
         logger.info(f"[DELETE] File removed: {file_path}")
+    # Clean up extracted images
+    filename_stem = os.path.splitext(filename)[0]
+    images_dir = os.path.join("static", "images", filename_stem)
+    if os.path.isdir(images_dir):
+        shutil.rmtree(images_dir, ignore_errors=True)
+        logger.info(f"[DELETE] Removed images dir: {images_dir}")
     results = collection.get(where={"source": filename})
     if results and results["ids"]:
         collection.delete(ids=results["ids"])
@@ -120,8 +233,7 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
     if not candidates:
         raw_by_distance = sorted(raw_chunks, key=lambda x: x["distance"])
         return [
-            {"source": i["source"], "score": round(i["distance"], 3),
-             "text": i["text"], "page": i.get("page", -1)}
+            {**i, "score": round(i["distance"], 3)}
             for i in raw_by_distance[:top_k]
         ]
 
@@ -179,10 +291,8 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
             continue
         seen_texts.add(key)
         deduped.append({
-            "source": c["source"],
+            **c,
             "score": round(c["distance"], 3),
-            "text": c["text"],
-            "page": c.get("page", -1),
         })
         if len(deduped) >= top_k:
             break
@@ -274,6 +384,12 @@ def fetch_adjacent_chunks(chunks: list) -> list:
     """
     expanded = []
     for chunk in chunks:
+        # Tables and images are self-contained — skip adjacent expansion
+        chunk_type = chunk.get("type", "text")
+        if chunk_type in ("table", "image"):
+            expanded.append(chunk)
+            continue
+
         source = chunk["source"]
         chunk_id = chunk.get("chunk_id")
         if not chunk_id:
@@ -375,6 +491,9 @@ def retrieve_chunks(query, top_k=None):
                 "text": results['documents'][0][i],
                 "page": meta.get("page", -1),
                 "chunk_id": chunk_id,
+                "type": meta.get("type", "text"),
+                "image_path": meta.get("image_path"),
+                "timestamp": meta.get("timestamp"),
             }
 
     raw_chunks = list(seen_ids.values())
@@ -399,7 +518,20 @@ def build_prompt(chunks, query):
         src = c["source"]
         if src not in sources_seen:
             sources_seen[src] = []
-        sources_seen[src].append(c["text"].strip())
+        chunk_type = c.get("type", "text")
+        text = c["text"].strip()
+        if chunk_type == "table":
+            page = c.get("page", -1)
+            label = f"page {page}" if page >= 0 else "unknown page"
+            text = f"[Table from {label}]\n{text}"
+        elif chunk_type == "image":
+            page = c.get("page", -1)
+            label = f"page {page}" if page >= 0 else "unknown page"
+            text = f"[Image from {label}]\n{text}"
+        elif chunk_type == "transcript":
+            ts = c.get("timestamp", "")
+            text = f"[Transcript {ts}]\n{text}" if ts else text
+        sources_seen[src].append(text)
 
     context_parts = []
     for src, texts in sources_seen.items():
@@ -495,7 +627,7 @@ def upload():
         return jsonify({"error": "Invalid filename."}), 400
 
     if not is_allowed_file(filename):
-        return jsonify({"error": "Only .txt, .pdf, and .docx files are supported."}), 400
+        return jsonify({"error": "Supported: .txt, .pdf, .docx, .mp4, .mp3, .wav, .m4a, .webm"}), 400
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
