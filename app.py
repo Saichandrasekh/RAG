@@ -30,6 +30,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress noisy Azure SDK HTTP logs
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("azure.storage").setLevel(logging.WARNING)
+
 # ── App init ─────────────────────────────────────────────────────────────────
 load_dotenv()
 openai_client = OpenAI(
