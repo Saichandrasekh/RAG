@@ -128,19 +128,6 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
 
     ranked.sort(key=lambda x: (-x["hybrid_score"], x["score"]))
 
-    # If top result's source dominates, filter out far-away sources to avoid pollution
-    if ranked:
-        best_score = ranked[0]["hybrid_score"]
-        best_source = ranked[0]["source"]
-        # If best chunk scores much higher than threshold, prefer its source
-        if best_score > 0.4:
-            same_source = [r for r in ranked if r["source"] == best_source]
-            other_source = [r for r in ranked if r["source"] != best_source]
-            # Only include other sources if they have similar scores
-            filtered_others = [r for r in other_source if r["hybrid_score"] >= best_score * 0.6]
-            ranked = same_source + filtered_others
-            ranked.sort(key=lambda x: (-x["hybrid_score"], x["score"]))
-
     deduped = []
     seen_texts = set()
     for item in ranked:
@@ -176,7 +163,7 @@ def retrieve_chunks(query, top_k=None):
         logger.warning("[SEARCH] No documents in index.")
         return [], top_k, max_distance
 
-    initial_k = min(max(top_k * 4, 20), total_docs)
+    initial_k = min(max(top_k * 6, 40), total_docs)
     results = collection.query(query_texts=[query], n_results=initial_k)
 
     raw_chunks = []
@@ -214,8 +201,10 @@ def build_prompt(chunks, query):
 
 Rules:
 - Answer directly and clearly based on the excerpts.
+- For contact details (phone, mobile, email, LinkedIn): look for any number or address format in the excerpts and return it directly.
+- A phone/mobile number looks like: +91-XXXXXXXXXX or any digit sequence. If you see one, that IS the answer.
 - If the exact information is in the excerpts, state it confidently.
-- If the answer is not in the excerpts, say: "I'm sorry, I don't see that information in the provided documents."
+- If the answer is truly not in the excerpts, say: "I'm sorry, I don't see that information in the provided documents."
 - Do NOT say information is missing if it IS present in the excerpts.
 - Do NOT add commentary like "the name X is not mentioned" if the person is clearly referenced.
 
