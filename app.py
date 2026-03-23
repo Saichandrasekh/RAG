@@ -128,6 +128,19 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
 
     ranked.sort(key=lambda x: (-x["hybrid_score"], x["score"]))
 
+    # If top result's source dominates, filter out far-away sources to avoid pollution
+    if ranked:
+        best_score = ranked[0]["hybrid_score"]
+        best_source = ranked[0]["source"]
+        # If best chunk scores much higher than threshold, prefer its source
+        if best_score > 0.4:
+            same_source = [r for r in ranked if r["source"] == best_source]
+            other_source = [r for r in ranked if r["source"] != best_source]
+            # Only include other sources if they have similar scores
+            filtered_others = [r for r in other_source if r["hybrid_score"] >= best_score * 0.6]
+            ranked = same_source + filtered_others
+            ranked.sort(key=lambda x: (-x["hybrid_score"], x["score"]))
+
     deduped = []
     seen_texts = set()
     for item in ranked:
@@ -184,17 +197,32 @@ def retrieve_chunks(query, top_k=None):
 
 
 def build_prompt(chunks, query):
-    context = "\n\n".join([c["text"].strip() for c in chunks])
-    return f"""You are a helpful, intelligent Document Retrieval Assistant.
-Please read the provided Excerpts and answer the User's Question clearly and conversationally.
-- Use ONLY the provided Excerpts.
-- If the answer is not contained in the Excerpts, simply reply: "I'm sorry, I don't see the answer to that in the provided documents."
-- If the Excerpts are not relevant to the question, do not guess.
+    # Group chunks by source for cleaner context
+    sources_seen = {}
+    for c in chunks:
+        src = c["source"]
+        if src not in sources_seen:
+            sources_seen[src] = []
+        sources_seen[src].append(c["text"].strip())
+
+    context_parts = []
+    for src, texts in sources_seen.items():
+        context_parts.append(f"[From: {src}]\n" + "\n\n".join(texts))
+    context = "\n\n---\n\n".join(context_parts)
+
+    return f"""You are a helpful Document Retrieval Assistant. Answer the user's question using ONLY the excerpts provided below.
+
+Rules:
+- Answer directly and clearly based on the excerpts.
+- If the exact information is in the excerpts, state it confidently.
+- If the answer is not in the excerpts, say: "I'm sorry, I don't see that information in the provided documents."
+- Do NOT say information is missing if it IS present in the excerpts.
+- Do NOT add commentary like "the name X is not mentioned" if the person is clearly referenced.
 
 Excerpts:
 {context}
 
-User's Question: {query}
+Question: {query}
 Answer:"""
 
 
