@@ -693,6 +693,30 @@ def delete():
 
 
 
+@app.route("/api/cleanup_index", methods=["POST"])
+def cleanup_index():
+    """Remove orphaned index entries for files that no longer exist on disk."""
+    existing_files = set(os.listdir(DATA_DIR)) if os.path.exists(DATA_DIR) else set()
+    all_meta = collection.get(include=["metadatas"])
+    orphan_ids = []
+    for i, meta in enumerate(all_meta["metadatas"]):
+        source = meta.get("source", "")
+        if source and source not in existing_files:
+            orphan_ids.append(all_meta["ids"][i])
+
+    if orphan_ids:
+        # Delete in batches to avoid SQLite variable limit
+        batch_size = 500
+        for i in range(0, len(orphan_ids), batch_size):
+            collection.delete(ids=orphan_ids[i:i + batch_size])
+        logger.info(f"[CLEANUP] Removed {len(orphan_ids)} orphaned chunks from index")
+        if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+            threading.Thread(target=upload_index, args=(INDEX_DIR,), daemon=True).start()
+        return jsonify({"ok": True, "removed": len(orphan_ids)})
+
+    return jsonify({"ok": True, "removed": 0, "message": "No orphaned chunks found"})
+
+
 @app.errorhandler(413)
 def file_too_large(_):
     logger.warning("[UPLOAD] File too large rejected.")

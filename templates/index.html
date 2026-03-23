@@ -604,25 +604,47 @@
     async function doDelete(fname) {
       if (!confirm(`Delete '${fname}'?`)) return;
 
-      const res  = await fetch('/api/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: fname })
-      });
-      const data = await res.json();
+      // Show deleting state on the card
+      const card = document.querySelector(`[data-fname="${fname}"]`);
+      if (card) {
+        const delBtn = card.querySelector('.btn-del');
+        if (delBtn) { delBtn.disabled = true; delBtn.textContent = 'Deleting…'; }
+        const badge = card.querySelector('[class^="badge-"]');
+        if (badge) { badge.className = 'badge-processing'; badge.innerHTML = '<span class="spinner"></span> Deleting…'; }
+        else { card.insertAdjacentHTML('afterbegin', '<div class="badge-processing"><span class="spinner"></span> Deleting…</div>'); }
+      }
 
-      if (data.ok) {
-        // Find card by data-fname attribute (handles special chars safely)
-        const card = document.querySelector(`[data-fname="${fname}"]`);
-        if (card) card.remove();
+      try {
+        const res  = await fetch('/api/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: fname })
+        });
+        const data = await res.json();
 
-        const badge = document.getElementById('file-count-badge');
-        const count = Math.max(0, parseInt(badge.textContent || '1') - 1);
-        badge.textContent = count;
+        if (data.ok) {
+          if (card) card.remove();
+          const countBadge = document.getElementById('file-count-badge');
+          const count = Math.max(0, parseInt(countBadge.textContent || '1') - 1);
+          countBadge.textContent = count;
 
-        if (!document.querySelector('#file-list .file-card')) {
-          document.getElementById('file-list').innerHTML =
-            `<div class="no-files" id="no-files-msg">No files uploaded yet</div>`;
+          if (!document.querySelector('#file-list .file-card')) {
+            document.getElementById('file-list').innerHTML =
+              `<div class="no-files" id="no-files-msg">No files uploaded yet</div>`;
+          }
+          showToast(`'${fname}' deleted successfully.`, 'success');
+        } else {
+          showToast(`Failed to delete '${fname}'.`, 'error');
+          if (card) {
+            const delBtn = card.querySelector('.btn-del');
+            if (delBtn) { delBtn.disabled = false; delBtn.textContent = 'Delete'; }
+          }
+        }
+      } catch (err) {
+        showToast(`Error deleting '${fname}'.`, 'error');
+        if (card) {
+          const delBtn = card.querySelector('.btn-del');
+          if (delBtn) { delBtn.disabled = false; delBtn.textContent = 'Delete'; }
         }
       }
     }
