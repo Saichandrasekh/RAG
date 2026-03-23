@@ -118,8 +118,6 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
             overlap = len(query_terms & chunk_terms) / len(query_terms)
         semantic_score = max(0.0, 1.0 - (dist / max_distance))
         hybrid_score = 0.8 * semantic_score + 0.2 * overlap
-        if overlap == 0 and dist > (max_distance * 0.9):
-            continue
         ranked.append({
             "source": chunk["source"],
             "score": round(dist, 3),

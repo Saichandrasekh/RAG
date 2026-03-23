@@ -153,67 +153,99 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Main ── */
-    .main { flex: 1; padding: 36px 40px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
-    .main-inner { width: 100%; max-width: 720px; }
+    /* ── Main chat layout ── */
+    .main {
+      flex: 1; display: flex; flex-direction: column;
+      height: calc(100vh - 60px); overflow: hidden;
+    }
 
-    .search-box {
-      display: flex; gap: 10px; margin-bottom: 32px;
-      background: white; border-radius: 14px; padding: 6px 6px 6px 18px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;
+    /* Scrollable messages area */
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 28px 20px 12px;
+      display: flex; flex-direction: column; gap: 24px;
     }
-    .search-box:focus-within { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
-    .search-box input[type="text"] {
-      flex: 1; border: none; outline: none; font-size: 0.98rem;
-      color: #1e293b; background: transparent; padding: 8px 0;
+    .chat-messages-inner { width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+
+    /* Fixed input bar at bottom */
+    .chat-input-bar {
+      border-top: 1px solid #e2e8f0; background: white;
+      padding: 16px 20px; flex-shrink: 0;
     }
-    .btn-search {
-      padding: 12px 24px; background: #3b82f6; color: white;
-      border: none; border-radius: 10px; font-size: 0.95rem; font-weight: 600;
-      cursor: pointer; transition: background 0.2s; white-space: nowrap;
+    .chat-input-wrap {
+      max-width: 760px; margin: 0 auto;
+      display: flex; gap: 10px; align-items: center;
+      background: #f8fafc; border: 1.5px solid #e2e8f0;
+      border-radius: 14px; padding: 8px 8px 8px 18px;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .btn-search:hover { background: #2563eb; }
-    .btn-search:disabled { background: #93c5fd; cursor: not-allowed; }
+    .chat-input-wrap:focus-within {
+      border-color: #3b82f6; background: white;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+    }
+    .chat-input-wrap input[type="text"] {
+      flex: 1; border: none; outline: none; font-size: 0.97rem;
+      color: #1e293b; background: transparent; padding: 6px 0;
+    }
+    .btn-send {
+      width: 40px; height: 40px; background: #3b82f6; color: white;
+      border: none; border-radius: 10px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s; flex-shrink: 0;
+    }
+    .btn-send:hover { background: #2563eb; }
+    .btn-send:disabled { background: #93c5fd; cursor: not-allowed; }
+    .btn-send svg { width: 18px; height: 18px; }
+
+    /* Chat bubbles */
+    .msg-group { display: flex; flex-direction: column; gap: 10px; }
+
+    .msg-user {
+      align-self: flex-end;
+      background: #3b82f6; color: white;
+      padding: 12px 18px; border-radius: 18px 18px 4px 18px;
+      font-size: 0.95rem; line-height: 1.5; max-width: 80%;
+      box-shadow: 0 2px 8px rgba(59,130,246,0.25);
+    }
+
+    .msg-ai {
+      align-self: flex-start; width: 100%;
+      background: white; border-radius: 4px 18px 18px 18px;
+      padding: 20px 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      border: 1px solid #f1f5f9;
+    }
+    .msg-ai-label {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: #3b82f6; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .msg-ai-label::after { content:''; flex:1; height:1px; background:#f1f5f9; }
 
     /* Skeleton loader */
     .skeleton { background: #e2e8f0; border-radius: 8px; animation: shimmer 1.2s infinite; }
-    @keyframes shimmer {
-      0%   { opacity: 1; }
-      50%  { opacity: 0.4; }
-      100% { opacity: 1; }
-    }
+    @keyframes shimmer { 0%,100%{opacity:1} 50%{opacity:0.4} }
     .skeleton-line { height: 14px; margin-bottom: 10px; }
     .skeleton-line.short { width: 60%; }
     .skeleton-line.med   { width: 85%; }
     .skeleton-line.full  { width: 100%; }
 
-    .card {
-      background: white; border-radius: 16px; padding: 28px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.07); margin-bottom: 20px;
-    }
-    .card-title {
-      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.1em; color: #3b82f6; margin-bottom: 16px;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .card-title::after { content: ''; flex: 1; height: 1px; background: #f1f5f9; }
-    .answer { line-height: 1.75; font-size: 0.97rem; color: #334155; }
+    .answer { line-height: 1.75; font-size: 0.96rem; color: #334155; }
     .answer p { margin: 0 0 10px 0; }
     .answer ul, .answer ol { padding-left: 1.5rem; margin: 0 0 10px 0; }
     .answer li { margin-bottom: 4px; }
     .answer h1, .answer h2, .answer h3 { margin: 16px 0 8px 0; font-size: 1rem; color: #1e293b; }
 
-    .sources-wrap { margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
-    .sources-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 10px; }
+    .sources-wrap { margin-top: 16px; padding-top: 14px; border-top: 1px solid #f1f5f9; }
+    .sources-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 8px; }
     .source-pill {
       display: inline-flex; align-items: center; gap: 5px;
-      background: #f1f5f9; color: #475569; padding: 5px 12px;
-      border-radius: 999px; font-size: 0.8rem; margin-right: 6px;
+      background: #f1f5f9; color: #475569; padding: 4px 10px;
+      border-radius: 999px; font-size: 0.78rem; margin-right: 6px;
       margin-bottom: 6px; border: 1px solid #e2e8f0;
     }
 
-    .empty-state { text-align: center; padding: 60px 0; color: #94a3b8; }
-    .empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; opacity: 0.4; }
+    .empty-state { text-align: center; padding: 80px 0; color: #94a3b8; }
+    .empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; opacity: 0.3; }
     .empty-state p { font-size: 1rem; }
   </style>
 </head>
@@ -290,22 +322,29 @@
 
     <!-- Main -->
     <main class="main">
-      <div class="main-inner">
-
-        <div class="search-box">
-          <input type="text" id="query-input" placeholder="Ask a question about your documents..." autocomplete="off">
-          <button class="btn-search" id="search-btn" onclick="doSearch()">Search</button>
-        </div>
-
-        <div id="result-area">
-          <div class="empty-state">
+      <!-- Scrollable chat messages -->
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-messages-inner" id="chat-inner">
+          <div class="empty-state" id="empty-state">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
             <p>Upload a document and ask a question to get started.</p>
           </div>
         </div>
+      </div>
 
+      <!-- Fixed input bar at bottom -->
+      <div class="chat-input-bar">
+        <div class="chat-input-wrap">
+          <input type="text" id="query-input" placeholder="Ask a question about your documents..." autocomplete="off">
+          <button class="btn-send" id="search-btn" onclick="doSearch()" title="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </main>
   </div>
@@ -318,30 +357,48 @@
       document.getElementById('sidebar').classList.toggle('hidden');
     }
 
-    // ── Search (AJAX) ───────────────────────────────────────────────
+    // ── Chat search ─────────────────────────────────────────────────
     const queryInput = document.getElementById('query-input');
     const searchBtn  = document.getElementById('search-btn');
-    const resultArea = document.getElementById('result-area');
+    const chatInner  = document.getElementById('chat-inner');
+    const chatScroll = document.getElementById('chat-messages');
 
     queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+    function scrollToBottom() {
+      chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
 
     async function doSearch() {
       const query = queryInput.value.trim();
       if (!query) return;
 
+      // Remove empty state
+      const es = document.getElementById('empty-state');
+      if (es) es.remove();
+
       searchBtn.disabled = true;
-      searchBtn.textContent = 'Searching…';
+      queryInput.value = '';
 
-      // Show card immediately with empty answer area
-      resultArea.innerHTML = `
-        <div class="card" id="answer-card">
-          <div class="card-title">Answer</div>
-          <div class="answer" id="streaming-answer"><span class="skeleton skeleton-line full" style="display:block"></span><span class="skeleton skeleton-line med" style="display:block;margin-top:8px"></span></div>
+      // Add user bubble
+      const msgGroup = document.createElement('div');
+      msgGroup.className = 'msg-group';
+      msgGroup.innerHTML = `
+        <div class="msg-user">${query.replace(/</g,'&lt;')}</div>
+        <div class="msg-ai" id="ai-msg-${Date.now()}">
+          <div class="msg-ai-label">Answer</div>
+          <div class="answer" id="streaming-answer-${Date.now()}">
+            <span class="skeleton skeleton-line full" style="display:block"></span>
+            <span class="skeleton skeleton-line med" style="display:block;margin-top:8px"></span>
+          </div>
         </div>`;
+      chatInner.appendChild(msgGroup);
+      scrollToBottom();
 
-      const answerEl = document.getElementById('streaming-answer');
+      const aiMsg    = msgGroup.querySelector('.msg-ai');
+      const answerEl = msgGroup.querySelector('.answer');
       let fullText = '';
-      let chunks = [];
+      let chunks   = [];
 
       try {
         const res = await fetch('/api/search/stream', {
@@ -360,55 +417,44 @@
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
-          buffer = lines.pop(); // keep incomplete line in buffer
+          buffer = lines.pop();
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
             const payload = line.slice(6).trim();
             if (payload === '[DONE]') break;
-
             try {
               const data = JSON.parse(payload);
               if (data.chunks) {
                 chunks = data.chunks;
               } else if (data.token) {
                 fullText += data.token;
-                answerEl.innerHTML = window.marked ? marked.parse(fullText) : fullText.replace(/\n/g, '<br>');
+                answerEl.innerHTML = window.marked ? marked.parse(fullText) : fullText.replace(/\n/g,'<br>');
+                scrollToBottom();
               } else if (data.answer) {
-                // empty result case
                 answerEl.innerHTML = `<p style="color:#64748b">${data.answer}</p>`;
               }
-            } catch (e) { /* malformed JSON line, skip */ }
+            } catch(e) {}
           }
         }
 
-        // Add sources after streaming completes
+        // Sources
         if (chunks.length) {
           const uniqueSources = [...new Set(chunks.map(c => c.source))];
-          const sourcePills = uniqueSources.map(s => `<span class="source-pill">📄 ${s}</span>`).join('');
-          document.getElementById('answer-card').innerHTML += `
-            <div class="sources-wrap">
-              <div class="sources-label">Sources</div>
-              ${sourcePills}
-            </div>`;
+          const pills = uniqueSources.map(s => `<span class="source-pill">📄 ${s}</span>`).join('');
+          aiMsg.innerHTML += `<div class="sources-wrap"><div class="sources-label">Sources</div>${pills}</div>`;
         }
 
         if (!fullText && !chunks.length) {
-          resultArea.innerHTML = `
-            <div class="empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              <p>No relevant data found. Try rephrasing your question.</p>
-            </div>`;
+          answerEl.innerHTML = `<p style="color:#94a3b8">No relevant data found. Try rephrasing your question.</p>`;
         }
 
-      } catch (err) {
-        resultArea.innerHTML = `<div class="card"><p style="color:#dc2626">Network error. Please try again.</p></div>`;
+      } catch(err) {
+        answerEl.innerHTML = `<p style="color:#dc2626">Network error. Please try again.</p>`;
       }
 
       searchBtn.disabled = false;
-      searchBtn.textContent = 'Search';
+      scrollToBottom();
     }
 
     // ── Upload (AJAX) ───────────────────────────────────────────────
@@ -435,18 +481,26 @@
 
         if (data.error) {
           showUploadMsg(data.error, 'error');
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = 'Upload & Ingest';
         } else {
           showUploadMsg(`'${data.filename}' uploaded. Indexing in background…`, 'info');
           addFileCard(data.filename);
           fileInput.value = '';
+          setUploadLocked(true);
           startPolling(data.filename);
         }
       } catch (err) {
         showUploadMsg('Upload failed. Please try again.', 'error');
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload & Ingest';
       }
+    }
 
-      uploadBtn.disabled = false;
-      uploadBtn.textContent = 'Upload & Ingest';
+    function setUploadLocked(locked) {
+      uploadBtn.disabled = locked;
+      uploadBtn.textContent = locked ? 'Indexing in progress…' : 'Upload & Ingest';
+      document.getElementById('upload-input').disabled = locked;
     }
 
     function showUploadMsg(msg, type) {
@@ -568,18 +622,17 @@
             const badgeEl = document.getElementById('badge-' + fname);
             if (badgeEl) { badgeEl.className = 'badge-done'; badgeEl.innerHTML = '&#10003; Indexed'; }
             showToast(`'${fname}' indexed successfully!`, 'success');
+            setUploadLocked(false);
 
           } else if (data.status && data.status.startsWith('error')) {
-            // Don't immediately show error — large files take long.
-            // Only show error if timeout exceeded.
             if (elapsed > INGEST_TIMEOUT_MS) {
               clearInterval(pollingTimers[fname]);
               delete pollingTimers[fname];
               const badgeEl = document.getElementById('badge-' + fname);
               if (badgeEl) { badgeEl.className = 'badge-error'; badgeEl.innerHTML = '&#x26A0; Error'; }
               showToast(`Failed to index '${fname}'. Please delete and re-upload.`, 'error');
+              setUploadLocked(false);
             }
-            // else: keep showing Indexing... spinner — thread may still be running
           }
         } catch (e) { /* network blip, keep polling */ }
       }, 3000);
