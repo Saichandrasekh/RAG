@@ -12,6 +12,14 @@ from werkzeug.utils import secure_filename
 from ingest import ingest_new_files, DATA_DIR
 from blob_sync import download_index, upload_index
 
+# ── BM25 ranking (optional dependency for hybrid search) ────────────────────
+try:
+    from rank_bm25 import BM25Okapi
+    _BM25_AVAILABLE = True
+except ImportError:
+    BM25Okapi = None
+    _BM25_AVAILABLE = False
+
 # ── Logging setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -105,50 +113,81 @@ def tokenize(text):
 
 
 def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
-    query_terms = {tok for tok in tokenize(query) if tok not in STOPWORDS}
-    ranked = []
+    # ── Step 1: Hard distance pre-filter ────────────────────────────────────
+    candidates = [c for c in raw_chunks if c["distance"] <= max_distance]
 
-    for chunk in raw_chunks:
-        dist = chunk["distance"]
-        if dist > max_distance:
-            continue
-        chunk_terms = set(tokenize(chunk["text"]))
-        overlap = 0.0
-        if query_terms:
-            overlap = len(query_terms & chunk_terms) / len(query_terms)
-        semantic_score = max(0.0, 1.0 - (dist / max_distance))
-        hybrid_score = 0.8 * semantic_score + 0.2 * overlap
-        ranked.append({
-            "source": chunk["source"],
-            "score": round(dist, 3),
-            "text": chunk["text"],
-            "page": chunk.get("page", -1),
-            "hybrid_score": hybrid_score,
-        })
+    # Fallback: if pre-filter removes everything, return top_k by distance
+    if not candidates:
+        raw_by_distance = sorted(raw_chunks, key=lambda x: x["distance"])
+        return [
+            {"source": i["source"], "score": round(i["distance"], 3),
+             "text": i["text"], "page": i.get("page", -1)}
+            for i in raw_by_distance[:top_k]
+        ]
 
-    ranked.sort(key=lambda x: (-x["hybrid_score"], x["score"]))
+    # ── Step 2: Semantic ranking ───────────────────────────────────────────
+    candidates_sorted_semantic = sorted(candidates, key=lambda x: x["distance"])
+    semantic_rank = {c["text"]: rank for rank, c in enumerate(candidates_sorted_semantic)}
 
+    # ── Step 3: BM25 ranking + RRF fusion ──────────────────────────────────
+    RRF_K = 60  # Standard constant from Cormack et al., 2009
+
+    if _BM25_AVAILABLE and len(candidates) > 0:
+        # Tokenize corpus and query using the same tokenizer
+        tokenized_corpus = [
+            [tok for tok in tokenize(c["text"]) if tok not in STOPWORDS]
+            for c in candidates
+        ]
+        tokenized_query = [tok for tok in tokenize(query) if tok not in STOPWORDS]
+
+        # Build BM25 index and score candidates
+        bm25 = BM25Okapi(tokenized_corpus)
+        bm25_scores = bm25.get_scores(tokenized_query)
+
+        # Rank candidates by BM25 score (higher = better)
+        bm25_ranked = sorted(
+            enumerate(candidates),
+            key=lambda x: bm25_scores[x[0]],
+            reverse=True
+        )
+        bm25_rank = {c["text"]: rank for rank, (_, c) in enumerate(bm25_ranked)}
+
+        # ── RRF fusion: combine semantic and BM25 ranks ─────────────────────
+        # RRF score = 1/(rank_semantic + k) + 1/(rank_bm25 + k)
+        rrf_scored = []
+        for c in candidates:
+            r_sem = semantic_rank[c["text"]]
+            r_bm25 = bm25_rank[c["text"]]
+            rrf_score = 1.0 / (r_sem + RRF_K) + 1.0 / (r_bm25 + RRF_K)
+            rrf_scored.append((rrf_score, c))
+
+        rrf_scored.sort(key=lambda x: x[0], reverse=True)
+        ranked = [c for _, c in rrf_scored]
+
+    else:
+        # Graceful degradation: BM25 unavailable or no candidates
+        if not _BM25_AVAILABLE:
+            logger.warning("[RERANK] rank-bm25 not available; falling back to semantic-only ranking.")
+        ranked = candidates_sorted_semantic
+
+    # ── Step 4: Deduplicate by normalized text, return top_k ────────────────
     deduped = []
     seen_texts = set()
-    for item in ranked:
-        key = " ".join(item["text"].split()).lower()
+    for c in ranked:
+        key = " ".join(c["text"].split()).lower()
         if key in seen_texts:
             continue
         seen_texts.add(key)
-        item.pop("hybrid_score", None)
-        deduped.append(item)
+        deduped.append({
+            "source": c["source"],
+            "score": round(c["distance"], 3),
+            "text": c["text"],
+            "page": c.get("page", -1),
+        })
         if len(deduped) >= top_k:
             break
 
-    if deduped:
-        return deduped
-
-    raw_by_distance = sorted(raw_chunks, key=lambda x: x["distance"])
-    return [
-        {"source": i["source"], "score": round(i["distance"], 3),
-         "text": i["text"], "page": i.get("page", -1)}
-        for i in raw_by_distance[:top_k]
-    ]
+    return deduped
 
 
 def expand_query(query: str) -> list:

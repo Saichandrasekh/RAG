@@ -12,3 +12,4 @@ openai
 python-dotenv
 gunicorn
 azure-storage-blob
+rank-bm25
