@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
 from ingest import ingest_new_files, DATA_DIR
+from blob_sync import download_index, upload_index
 
 # ── Logging setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -36,9 +37,22 @@ STOPWORDS = {
     "when", "where", "which", "who", "why", "with", "you", "your"
 }
 
+# ── Blob Storage: download index on startup ───────────────────────────────────
+INDEX_DIR = "index/chroma_db"
+if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+    logger.info("[BLOB] Downloading ChromaDB index from Blob Storage...")
+    success = download_index(INDEX_DIR)
+    if success:
+        logger.info("[BLOB] Index restored from Blob Storage.")
+    else:
+        logger.info("[BLOB] No index in Blob — will start fresh and build on first ingest.")
+else:
+    logger.info("[BLOB] AZURE_STORAGE_CONNECTION_STRING not set — skipping Blob sync (local mode).")
+
 # ── ChromaDB init ─────────────────────────────────────────────────────────────
 logger.info("Initializing ChromaDB...")
-chroma_client = chromadb.PersistentClient(path="index/chroma_db")
+os.makedirs(INDEX_DIR, exist_ok=True)
+chroma_client = chromadb.PersistentClient(path=INDEX_DIR)
 sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 collection = chroma_client.get_or_create_collection(
     name="knowledge_base",
@@ -58,6 +72,10 @@ def run_ingest_background(filename):
         ingest_new_files(collection=collection)
         ingest_status[filename] = "done"
         logger.info(f"[INGEST] Completed successfully: {filename} | Total chunks: {collection.count()}")
+        # Upload updated index to Blob Storage so it persists across deployments
+        if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+            logger.info("[BLOB] Uploading updated index to Blob Storage...")
+            upload_index(INDEX_DIR)
     except Exception as e:
         ingest_status[filename] = f"error: {e}"
         logger.error(f"[INGEST] Failed for {filename}: {e}", exc_info=True)
@@ -77,6 +95,8 @@ def delete_file_and_index(filename):
     if results and results["ids"]:
         collection.delete(ids=results["ids"])
         logger.info(f"[DELETE] Removed {len(results['ids'])} chunks from index for: {filename}")
+        if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+            threading.Thread(target=upload_index, args=(INDEX_DIR,), daemon=True).start()
 
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
@@ -280,24 +300,6 @@ def delete():
         return jsonify({"ok": True})
     return jsonify({"error": "No file specified."}), 400
 
-
-@app.route("/api/replace", methods=["POST"])
-def replace():
-    file = request.files.get("document")
-    filename = request.form.get("filename")
-
-    if not file or not filename:
-        return jsonify({"error": "Missing file or filename."}), 400
-
-    delete_file_and_index(filename)
-    os.makedirs(DATA_DIR, exist_ok=True)
-    file.save(os.path.join(DATA_DIR, filename))
-    logger.info(f"[REPLACE] File replaced: {filename}")
-
-    thread = threading.Thread(target=run_ingest_background, args=(filename,), daemon=True)
-    thread.start()
-
-    return jsonify({"filename": filename, "status": "processing"})
 
 
 @app.errorhandler(413)

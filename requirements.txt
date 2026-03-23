@@ -11,3 +11,4 @@ chromadb
 openai
 python-dotenv
 gunicorn
+azure-storage-blob
