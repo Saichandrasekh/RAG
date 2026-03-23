@@ -85,7 +85,7 @@ def chunk_text_stream(text_stream, sentences_per_chunk=5, overlap=2):
             break
         sentences = sentences[sentences_per_chunk - overlap:]
 
-def yield_file_chunks(path, sentences_per_chunk=5, overlap=2):
+def yield_file_chunks(path, sentences_per_chunk=3, overlap=1):
     if path.lower().endswith(".txt"):
         stream = stream_txt(path)
     elif path.lower().endswith(".pdf"):
