@@ -448,8 +448,7 @@ def fetch_adjacent_chunks(chunks: list) -> list:
         center_page = fetched.get(chunk_id, {}).get("page", chunk.get("page", -1))
 
         expanded.append({
-            "source": source,
-            "score": chunk["score"],
+            **chunk,
             "text": merged_text,
             "page": center_page,
         })
@@ -473,7 +472,7 @@ def retrieve_chunks(query, top_k=None):
     queries = expand_query(query)
     initial_k = min(max(top_k * 6, 40), total_docs)
 
-    # Multi-query retrieval with deduplication by chunk_id
+    # Multi-query retrieval with deduplication by chunk_id (keep best distance)
     seen_ids = {}
     for q in queries:
         results = collection.query(query_texts=[q], n_results=initial_k)
@@ -481,10 +480,11 @@ def retrieve_chunks(query, top_k=None):
             continue
         for i in range(len(results['documents'][0])):
             chunk_id = results['ids'][0][i]
-            if chunk_id in seen_ids:
-                continue  # deduplicate across sub-queries
-            meta = results['metadatas'][0][i]
             dist = float(results['distances'][0][i])
+            # Keep the best (lowest) distance across all sub-queries
+            if chunk_id in seen_ids and seen_ids[chunk_id]["distance"] <= dist:
+                continue
+            meta = results['metadatas'][0][i]
             seen_ids[chunk_id] = {
                 "source": meta.get("source", "Unknown"),
                 "distance": dist,
@@ -584,6 +584,33 @@ def api_search_stream():
     # Multi-document context window: sort by document order, then expand with adjacent chunks
     chunks = sort_chunks_by_document_order(chunks)
     chunks = fetch_adjacent_chunks(chunks)
+
+    # Attach images from retrieved sources (images rarely match queries semantically,
+    # so fetch them by source file when text chunks from that file are retrieved)
+    retrieved_sources = {c["source"] for c in chunks}
+    existing_image_sources = {c["source"] for c in chunks if c.get("type") == "image"}
+    for src in retrieved_sources - existing_image_sources:
+        try:
+            img_results = collection.get(
+                where={"$and": [{"source": src}, {"type": "image"}]},
+                include=["documents", "metadatas"],
+                limit=5,
+            )
+            if img_results and img_results["ids"]:
+                for i, img_id in enumerate(img_results["ids"]):
+                    meta = img_results["metadatas"][i]
+                    if meta.get("image_path"):
+                        chunks.append({
+                            "source": src,
+                            "score": 0,
+                            "text": img_results["documents"][i],
+                            "page": meta.get("page", -1),
+                            "type": "image",
+                            "image_path": meta.get("image_path"),
+                            "chunk_id": img_id,
+                        })
+        except Exception as e:
+            logger.warning(f"[SEARCH] Failed to fetch images for {src}: {e}")
 
     prompt = build_prompt(chunks, query)
 
