@@ -696,25 +696,53 @@ def delete():
 @app.route("/api/cleanup_index", methods=["POST"])
 def cleanup_index():
     """Remove orphaned index entries for files that no longer exist on disk."""
-    existing_files = set(os.listdir(DATA_DIR)) if os.path.exists(DATA_DIR) else set()
-    all_meta = collection.get(include=["metadatas"])
-    orphan_ids = []
-    for i, meta in enumerate(all_meta["metadatas"]):
-        source = meta.get("source", "")
-        if source and source not in existing_files:
-            orphan_ids.append(all_meta["ids"][i])
+    try:
+        existing_files = set(os.listdir(DATA_DIR)) if os.path.exists(DATA_DIR) else set()
 
-    if orphan_ids:
-        # Delete in batches to avoid SQLite variable limit
-        batch_size = 500
-        for i in range(0, len(orphan_ids), batch_size):
-            collection.delete(ids=orphan_ids[i:i + batch_size])
-        logger.info(f"[CLEANUP] Removed {len(orphan_ids)} orphaned chunks from index")
-        if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+        # Find all unique sources in the index using per-file checks
+        # First, get a sample to discover source names
+        total = collection.count()
+        if total == 0:
+            return jsonify({"ok": True, "removed": 0, "message": "Index is empty"})
+
+        # Get sources in small batches to avoid SQLite limit
+        all_sources = set()
+        offset = 0
+        batch = 100
+        while offset < total:
+            result = collection.get(limit=batch, offset=offset, include=["metadatas"])
+            if not result or not result["ids"]:
+                break
+            for meta in result["metadatas"]:
+                src = meta.get("source", "")
+                if src:
+                    all_sources.add(src)
+            offset += batch
+
+        # Find orphaned sources (in index but not on disk)
+        orphan_sources = all_sources - existing_files
+        total_removed = 0
+
+        for source in orphan_sources:
+            try:
+                result = collection.get(where={"source": source}, include=[])
+                if result and result["ids"]:
+                    # Delete in batches
+                    ids = result["ids"]
+                    for i in range(0, len(ids), 500):
+                        collection.delete(ids=ids[i:i + 500])
+                    total_removed += len(ids)
+                    logger.info(f"[CLEANUP] Removed {len(ids)} chunks for orphaned source: {source}")
+            except Exception as e:
+                logger.warning(f"[CLEANUP] Error cleaning {source}: {e}")
+
+        if total_removed > 0 and os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
             threading.Thread(target=upload_index, args=(INDEX_DIR,), daemon=True).start()
-        return jsonify({"ok": True, "removed": len(orphan_ids)})
 
-    return jsonify({"ok": True, "removed": 0, "message": "No orphaned chunks found"})
+        return jsonify({"ok": True, "removed": total_removed, "orphaned_sources": list(orphan_sources)})
+    except Exception as e:
+        logger.error(f"[CLEANUP] Failed: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 @app.errorhandler(413)
