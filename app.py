@@ -151,6 +151,157 @@ def rerank_and_filter_chunks(raw_chunks, query, top_k, max_distance):
     ]
 
 
+def expand_query(query: str) -> list:
+    """
+    Generate 2 alternative phrasings of the query using the LLM.
+    Returns a list that always starts with the original query.
+    Falls back to [query] on any error.
+    """
+    system_msg = "You are a search query expansion assistant."
+    user_msg = (
+        f"Generate 2 alternative phrasings of this search query. "
+        f"Return ONLY a JSON array of strings, no explanation.\n"
+        f"Query: {query}\n"
+        f"Example output: [\"alt phrasing 1\", \"alt phrasing 2\"]"
+    )
+    try:
+        response = openai_client.chat.completions.create(
+            model=os.getenv("XAI_MODEL", "grok-3-latest"),
+            temperature=0,
+            stream=False,
+            max_tokens=60,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        alternatives = json.loads(raw)
+        if not isinstance(alternatives, list):
+            raise ValueError("LLM did not return a list")
+        # Prepend the original query so it always leads
+        queries = [query] + [q for q in alternatives if isinstance(q, str) and q.strip()]
+        logger.info(f"[EXPAND] Expanded '{query}' → {queries}")
+        return queries
+    except Exception as e:
+        logger.warning(f"[EXPAND] Query expansion failed, using original: {e}")
+        return [query]
+
+
+def sort_chunks_by_document_order(chunks: list) -> list:
+    """
+    Group chunks by source, then within each source sort by the numeric
+    suffix of the chunk_id (document order). Sources are ordered by the
+    rank of their first-appearing chunk (best relevance first).
+    """
+    source_order = []
+    source_chunks = {}
+    for c in chunks:
+        src = c["source"]
+        if src not in source_chunks:
+            source_chunks[src] = []
+            source_order.append(src)
+        source_chunks[src].append(c)
+
+    result = []
+    for src in source_order:
+        group = source_chunks[src]
+        def sort_key(c):
+            cid = c.get("chunk_id", "")
+            if cid:
+                parts = cid.rsplit("_chunk_", 1)
+                if len(parts) == 2:
+                    try:
+                        return int(parts[1])
+                    except ValueError:
+                        pass
+            return 0
+        group.sort(key=sort_key)
+        result.extend(group)
+
+    return result
+
+
+def fetch_adjacent_chunks(chunks: list) -> list:
+    """
+    For each chunk in chunks, attempt to fetch the previous and next
+    chunk from the same source file using their IDs. Merges them into
+    a single expanded-text entry. Returns a new list of chunks.
+    """
+    expanded = []
+    for chunk in chunks:
+        source = chunk["source"]
+        chunk_id = chunk.get("chunk_id")
+        if not chunk_id:
+            expanded.append(chunk)
+            continue
+
+        try:
+            parts = chunk_id.rsplit("_chunk_", 1)
+            if len(parts) != 2:
+                expanded.append(chunk)
+                continue
+            filename, idx_str = parts
+            chunk_idx = int(idx_str)
+        except (ValueError, IndexError):
+            expanded.append(chunk)
+            continue
+
+        # Build the list of IDs to fetch: prev, current, next
+        ids_to_fetch = []
+        if chunk_idx > 0:
+            ids_to_fetch.append(f"{filename}_chunk_{chunk_idx - 1}")
+        ids_to_fetch.append(chunk_id)
+        ids_to_fetch.append(f"{filename}_chunk_{chunk_idx + 1}")
+
+        try:
+            result = collection.get(
+                ids=ids_to_fetch,
+                include=["documents", "metadatas"]
+            )
+        except Exception as e:
+            logger.warning(f"[EXPAND] collection.get failed for {chunk_id}: {e}")
+            expanded.append(chunk)
+            continue
+
+        if not result or not result["ids"]:
+            expanded.append(chunk)
+            continue
+
+        # Build a lookup from ID → (text, page)
+        fetched = {}
+        for i, fid in enumerate(result["ids"]):
+            fetched[fid] = {
+                "text": result["documents"][i],
+                "page": result["metadatas"][i].get("page", -1),
+            }
+
+        # Merge text: prev → current → next
+        merged_texts = []
+        for fid in ids_to_fetch:
+            if fid in fetched:
+                merged_texts.append(fetched[fid]["text"].strip())
+
+        merged_text = " ".join(merged_texts)
+
+        # Use the page of the current (center) chunk
+        center_page = fetched.get(chunk_id, {}).get("page", chunk.get("page", -1))
+
+        expanded.append({
+            "source": source,
+            "score": chunk["score"],
+            "text": merged_text,
+            "page": center_page,
+        })
+
+    return expanded
+
+
 def retrieve_chunks(query, top_k=None):
     if top_k is None:
         top_k = int(os.getenv("RETRIEVAL_TOP_K", "8"))
@@ -163,22 +314,41 @@ def retrieve_chunks(query, top_k=None):
         logger.warning("[SEARCH] No documents in index.")
         return [], top_k, max_distance
 
+    # Multi-query expansion
+    queries = expand_query(query)
     initial_k = min(max(top_k * 6, 40), total_docs)
-    results = collection.query(query_texts=[query], n_results=initial_k)
 
-    raw_chunks = []
-    if results and results['documents'] and results['documents'][0]:
+    # Multi-query retrieval with deduplication by chunk_id
+    seen_ids = {}
+    for q in queries:
+        results = collection.query(query_texts=[q], n_results=initial_k)
+        if not (results and results['documents'] and results['documents'][0]):
+            continue
         for i in range(len(results['documents'][0])):
+            chunk_id = results['ids'][0][i]
+            if chunk_id in seen_ids:
+                continue  # deduplicate across sub-queries
             meta = results['metadatas'][0][i]
             dist = float(results['distances'][0][i])
-            raw_chunks.append({
+            seen_ids[chunk_id] = {
                 "source": meta.get("source", "Unknown"),
                 "distance": dist,
                 "text": results['documents'][0][i],
                 "page": meta.get("page", -1),
-            })
+                "chunk_id": chunk_id,
+            }
+
+    raw_chunks = list(seen_ids.values())
+
+    # Build text_to_id map before reranking (which reconstructs dicts)
+    text_to_id = {c["text"]: c["chunk_id"] for c in raw_chunks}
 
     chunks = rerank_and_filter_chunks(raw_chunks, query, top_k=top_k, max_distance=max_distance)
+
+    # Re-attach chunk_id after reranking
+    for c in chunks:
+        c["chunk_id"] = text_to_id.get(c["text"])
+
     logger.info(f"[SEARCH] Returning {len(chunks)} chunks for query: '{query}'")
     return chunks, top_k, max_distance
 
@@ -239,6 +409,10 @@ def api_search_stream():
             yield "data: [DONE]\n\n"
         return Response(stream_with_context(empty_gen()), mimetype="text/event-stream",
                         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+    # Multi-document context window: sort by document order, then expand with adjacent chunks
+    chunks = sort_chunks_by_document_order(chunks)
+    chunks = fetch_adjacent_chunks(chunks)
 
     prompt = build_prompt(chunks, query)
 
