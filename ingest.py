@@ -73,18 +73,39 @@ def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR, collection=None):
             batch_metadatas = []
             batch_ids = []
             chunk_idx = 0
+            table_idx = 0
             batch_num = 0
 
-            for chunk, page_num in chunk_generator:
+            for chunk, page_num, meta in chunk_generator:
                 if not chunk.strip():
                     continue
-                batch_documents.append(chunk)
-                batch_metadatas.append({
+
+                chunk_type = meta.get("type", "text")
+
+                # Build type-specific chunk ID
+                if chunk_type == "table":
+                    chunk_id = f"{filename}_table_{page_num}_{table_idx}"
+                    table_idx += 1
+                elif chunk_type == "image":
+                    chunk_id = f"{filename}_image_{page_num}_{meta.get('image_index', 0)}"
+                else:
+                    chunk_id = f"{filename}_chunk_{chunk_idx}"
+                    chunk_idx += 1
+
+                # Build metadata — always include type
+                chunk_meta = {
                     "source": filename,
-                    "page": page_num if page_num is not None else -1
-                })
-                batch_ids.append(f"{filename}_chunk_{chunk_idx}")
-                chunk_idx += 1
+                    "page": page_num if page_num is not None else -1,
+                    "type": chunk_type,
+                }
+                # Carry through extra metadata (image_path, table_index, timestamp, etc.)
+                for key in ("image_path", "table_index", "timestamp"):
+                    if key in meta:
+                        chunk_meta[key] = meta[key]
+
+                batch_documents.append(chunk)
+                batch_metadatas.append(chunk_meta)
+                batch_ids.append(chunk_id)
 
                 if len(batch_documents) >= BATCH_SIZE:
                     batch_num += 1

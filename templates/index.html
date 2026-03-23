@@ -247,6 +247,21 @@
     .empty-state { text-align: center; padding: 80px 0; color: #94a3b8; }
     .empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; opacity: 0.3; }
     .empty-state p { font-size: 1rem; }
+
+    /* ── Retrieved images ── */
+    .image-results { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+    .image-result-card {
+      border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;
+      background: #f8fafc;
+    }
+    .image-result-card img {
+      width: 100%; max-height: 400px; object-fit: contain;
+      display: block; background: white;
+    }
+    .image-result-caption {
+      padding: 8px 12px; font-size: 0.78rem; color: #64748b;
+      border-top: 1px solid #e2e8f0;
+    }
   </style>
 </head>
 <body>
@@ -272,7 +287,7 @@
       <div class="sidebar-header">
         <h2>Upload Document</h2>
         <div class="upload-zone">
-          <input type="file" id="upload-input" accept=".txt,.pdf,.docx">
+          <input type="file" id="upload-input" accept=".txt,.pdf,.docx,.mp4,.mp3,.wav,.m4a,.webm">
           <button class="btn-upload" id="upload-btn" onclick="doUpload()">Upload &amp; Ingest</button>
         </div>
         <div class="upload-msg" id="upload-msg"></div>
@@ -438,10 +453,34 @@
           }
         }
 
+        // Inline images from retrieved chunks
+        const imageChunks = chunks.filter(c => c.type === 'image' && c.image_path);
+        if (imageChunks.length) {
+          let imagesHtml = '<div class="image-results">';
+          for (const ic of imageChunks) {
+            const page = ic.page >= 0 ? ` page ${ic.page}` : '';
+            imagesHtml += `<div class="image-result-card">
+              <img src="${ic.image_path}" alt="Image from ${ic.source}${page}" loading="lazy">
+              <div class="image-result-caption">From ${ic.source}${page}</div>
+            </div>`;
+          }
+          imagesHtml += '</div>';
+          aiMsg.querySelector('.answer').innerHTML += imagesHtml;
+        }
+
         // Sources
         if (chunks.length) {
           const uniqueSources = [...new Set(chunks.map(c => c.source))];
-          const pills = uniqueSources.map(s => `<span class="source-pill">📄 ${s}</span>`).join('');
+          const pills = uniqueSources.map(s => {
+            const hasTable = chunks.some(c => c.source === s && c.type === 'table');
+            const hasImage = chunks.some(c => c.source === s && c.type === 'image');
+            const hasTranscript = chunks.some(c => c.source === s && c.type === 'transcript');
+            let icon = '📄';
+            if (hasTranscript) icon = '🎙️';
+            else if (hasImage) icon = '🖼️';
+            else if (hasTable) icon = '📊';
+            return `<span class="source-pill">${icon} ${s}</span>`;
+          }).join('');
           aiMsg.innerHTML += `<div class="sources-wrap"><div class="sources-label">Sources</div>${pills}</div>`;
         }
 
