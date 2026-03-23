@@ -49,10 +49,21 @@ def stream_docx(path):
         if p.text.strip():
             yield p.text, None
 
-def extract_pdf_images(path, output_dir, min_size=50, max_ocr_dim=2000):
+def _is_blank_image(pil_img, threshold=10):
+    """Check if image is effectively blank (all black, all white, or uniform color)."""
+    try:
+        grayscale = pil_img.convert("L")
+        extrema = grayscale.getextrema()
+        # If min and max pixel values are very close, image is uniform/blank
+        return (extrema[1] - extrema[0]) < threshold
+    except Exception:
+        return False
+
+
+def extract_pdf_images(path, output_dir, min_size=100, min_bytes=5000, max_ocr_dim=2000):
     """Extract embedded images from PDF, run OCR, save to output_dir.
     Yields dicts: {image_path, ocr_text, page, image_index, ext}.
-    Skips tiny images (decorative elements) under min_size px."""
+    Skips tiny/decorative/blank images."""
     os.makedirs(output_dir, exist_ok=True)
     doc = fitz.open(path)
     for page_num, page in enumerate(doc):
@@ -65,9 +76,23 @@ def extract_pdf_images(path, output_dir, min_size=50, max_ocr_dim=2000):
                 width = base_image.get("width", 0)
                 height = base_image.get("height", 0)
 
-                # Skip tiny decorative images
+                # Skip tiny decorative images (icons, logos, separators)
                 if width < min_size or height < min_size:
                     continue
+
+                # Skip very small files (likely not meaningful content)
+                if len(img_bytes) < min_bytes:
+                    continue
+
+                # Skip blank/black/white images
+                if _OCR_AVAILABLE:
+                    try:
+                        check_img = Image.open(io.BytesIO(img_bytes))
+                        if _is_blank_image(check_img):
+                            logger.info(f"[IMAGE] Skipping blank image: page {page_num} img {img_idx}")
+                            continue
+                    except Exception:
+                        pass
 
                 img_path = os.path.join(output_dir, f"page_{page_num}_{img_idx}.{ext}")
                 with open(img_path, "wb") as f:
