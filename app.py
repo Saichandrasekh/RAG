@@ -4,15 +4,13 @@ from chromadb.utils import embedding_functions
 import os
 import re
 import json
-import shutil
 import threading
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
 from ingest import ingest_new_files, DATA_DIR
-from utils import is_audio_video, extract_audio, split_audio_for_whisper, chunk_transcript
-from blob_sync import download_index, upload_index, download_images, upload_images
+from blob_sync import download_index, upload_index
 
 # ── BM25 ranking (optional dependency for hybrid search) ────────────────────
 try:
@@ -30,6 +28,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress noisy Azure SDK HTTP logs
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("azure.storage").setLevel(logging.WARNING)
+
 # ── App init ─────────────────────────────────────────────────────────────────
 load_dotenv()
 openai_client = OpenAI(
@@ -39,7 +41,7 @@ openai_client = OpenAI(
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
-ALLOWED_EXTENSIONS = {".txt", ".pdf", ".docx", ".mp4", ".mp3", ".wav", ".m4a", ".webm"}
+ALLOWED_EXTENSIONS = {".txt", ".pdf", ".docx"}
 
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "i",
@@ -56,8 +58,6 @@ if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
         logger.info("[BLOB] Index restored from Blob Storage.")
     else:
         logger.info("[BLOB] No index in Blob — will start fresh and build on first ingest.")
-    # Also download extracted images
-    download_images()
 else:
     logger.info("[BLOB] AZURE_STORAGE_CONNECTION_STRING not set — skipping Blob sync (local mode).")
 
@@ -76,121 +76,18 @@ logger.info(f"ChromaDB ready. Total chunks in index: {collection.count()}")
 ingest_status = {}
 
 
-# ── Audio/Video transcription ─────────────────────────────────────────────────
-def transcribe_file(file_path, filename):
-    """Transcribe an audio/video file using Groq Whisper API.
-    Returns list of transcript chunks as (text, page, metadata_dict) tuples."""
-    logger.info(f"[TRANSCRIBE] Starting transcription for: {filename}")
-
-    # Extract audio (converts to WAV if needed)
-    wav_path = extract_audio(file_path)
-
-    # Split if >25MB (Groq Whisper limit)
-    segments_paths = split_audio_for_whisper(wav_path)
-
-    all_segments = []
-    time_offset = 0.0
-
-    for seg_path in segments_paths:
-        try:
-            with open(seg_path, "rb") as audio_file:
-                transcript = openai_client.audio.transcriptions.create(
-                    model="whisper-large-v3",
-                    file=audio_file,
-                    response_format="verbose_json",
-                )
-
-            # Extract segments with timestamps
-            if hasattr(transcript, "segments") and transcript.segments:
-                for seg in transcript.segments:
-                    all_segments.append({
-                        "text": seg.get("text", seg.text if hasattr(seg, "text") else ""),
-                        "start": (seg.get("start", 0) if isinstance(seg, dict) else getattr(seg, "start", 0)) + time_offset,
-                        "end": (seg.get("end", 0) if isinstance(seg, dict) else getattr(seg, "end", 0)) + time_offset,
-                    })
-            elif hasattr(transcript, "text") and transcript.text:
-                # Fallback: no segments, just full text
-                all_segments.append({
-                    "text": transcript.text,
-                    "start": time_offset,
-                    "end": time_offset + 600,
-                })
-
-            # Update time offset for next segment
-            if all_segments:
-                time_offset = all_segments[-1]["end"]
-
-        except Exception as e:
-            logger.error(f"[TRANSCRIBE] Whisper API failed for segment: {e}")
-            continue
-
-    # Clean up temp WAV files
-    if wav_path != file_path and os.path.exists(wav_path):
-        try:
-            os.remove(wav_path)
-        except OSError:
-            pass
-    for seg_path in segments_paths:
-        if seg_path != wav_path and seg_path != file_path and os.path.exists(seg_path):
-            try:
-                os.remove(seg_path)
-            except OSError:
-                pass
-
-    # Chunk the transcript
-    chunks = []
-    for idx, (text, timestamp) in enumerate(chunk_transcript(all_segments)):
-        chunks.append((text, None, {"type": "transcript", "timestamp": timestamp}))
-
-    logger.info(f"[TRANSCRIBE] Generated {len(chunks)} transcript chunks for: {filename}")
-    return chunks
-
-
 # ── Ingest background thread ──────────────────────────────────────────────────
 def run_ingest_background(filename):
     logger.info(f"[INGEST] Starting background ingest for: {filename}")
     ingest_status[filename] = "processing"
     try:
-        file_path = os.path.join(DATA_DIR, filename)
-
-        # Handle audio/video files: transcribe first, then ingest transcript chunks
-        if is_audio_video(file_path):
-            transcript_chunks = transcribe_file(file_path, filename)
-            if transcript_chunks:
-                # Ingest transcript chunks directly
-                from ingest import BATCH_SIZE, log as ingest_log
-                batch_docs, batch_metas, batch_ids = [], [], []
-                for idx, (text, page, meta) in enumerate(transcript_chunks):
-                    batch_docs.append(text)
-                    batch_metas.append({
-                        "source": filename,
-                        "page": page if page is not None else -1,
-                        "type": meta.get("type", "transcript"),
-                        "timestamp": meta.get("timestamp", ""),
-                    })
-                    batch_ids.append(f"{filename}_transcript_{idx}")
-
-                    if len(batch_docs) >= BATCH_SIZE:
-                        collection.upsert(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
-                        batch_docs, batch_metas, batch_ids = [], [], []
-
-                if batch_docs:
-                    collection.upsert(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
-
-                logger.info(f"[INGEST] Transcribed and indexed {len(transcript_chunks)} chunks for: {filename}")
-            else:
-                logger.warning(f"[INGEST] No transcript generated for: {filename}")
-        else:
-            # Standard document ingestion
-            ingest_new_files(collection=collection)
-
+        ingest_new_files(collection=collection)
         ingest_status[filename] = "done"
         logger.info(f"[INGEST] Completed successfully: {filename} | Total chunks: {collection.count()}")
         # Upload updated index to Blob Storage so it persists across deployments
         if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
             logger.info("[BLOB] Uploading updated index to Blob Storage...")
             upload_index(INDEX_DIR)
-            upload_images()
     except Exception as e:
         ingest_status[filename] = f"error: {e}"
         logger.error(f"[INGEST] Failed for {filename}: {e}", exc_info=True)
@@ -206,16 +103,20 @@ def delete_file_and_index(filename):
     if os.path.exists(file_path):
         os.remove(file_path)
         logger.info(f"[DELETE] File removed: {file_path}")
-    # Clean up extracted images
-    filename_stem = os.path.splitext(filename)[0]
-    images_dir = os.path.join("static", "images", filename_stem)
-    if os.path.isdir(images_dir):
-        shutil.rmtree(images_dir, ignore_errors=True)
-        logger.info(f"[DELETE] Removed images dir: {images_dir}")
-    results = collection.get(where={"source": filename})
-    if results and results["ids"]:
+    # Delete index chunks in batches to avoid SQLite variable limit
+    total_removed = 0
+    while True:
+        try:
+            results = collection.get(where={"source": filename}, limit=500, include=[])
+        except Exception as e:
+            logger.warning(f"[DELETE] Error fetching chunks for {filename}: {e}")
+            break
+        if not results or not results["ids"]:
+            break
         collection.delete(ids=results["ids"])
-        logger.info(f"[DELETE] Removed {len(results['ids'])} chunks from index for: {filename}")
+        total_removed += len(results["ids"])
+    if total_removed:
+        logger.info(f"[DELETE] Removed {total_removed} chunks from index for: {filename}")
         if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
             threading.Thread(target=upload_index, args=(INDEX_DIR,), daemon=True).start()
 
@@ -384,9 +285,9 @@ def fetch_adjacent_chunks(chunks: list) -> list:
     """
     expanded = []
     for chunk in chunks:
-        # Tables and images are self-contained — skip adjacent expansion
+        # Tables are self-contained — skip adjacent expansion
         chunk_type = chunk.get("type", "text")
-        if chunk_type in ("table", "image"):
+        if chunk_type == "table":
             expanded.append(chunk)
             continue
 
@@ -492,7 +393,6 @@ def retrieve_chunks(query, top_k=None):
                 "page": meta.get("page", -1),
                 "chunk_id": chunk_id,
                 "type": meta.get("type", "text"),
-                "image_path": meta.get("image_path"),
                 "timestamp": meta.get("timestamp"),
             }
 
@@ -524,10 +424,6 @@ def build_prompt(chunks, query):
             page = c.get("page", -1)
             label = f"page {page}" if page >= 0 else "unknown page"
             text = f"[Table from {label}]\n{text}"
-        elif chunk_type == "image":
-            page = c.get("page", -1)
-            label = f"page {page}" if page >= 0 else "unknown page"
-            text = f"[Image from {label}]\n{text}"
         elif chunk_type == "transcript":
             ts = c.get("timestamp", "")
             text = f"[Transcript {ts}]\n{text}" if ts else text
@@ -541,7 +437,10 @@ def build_prompt(chunks, query):
     return f"""You are a helpful Document Retrieval Assistant. Answer the user's question using ONLY the excerpts provided below.
 
 Rules:
-- Answer directly and clearly based on the excerpts.
+- Provide detailed, thorough, and well-explained answers. Do NOT give one-line or overly brief responses.
+- Include all relevant information from the excerpts — explain concepts fully with context, examples, and details found in the excerpts.
+- If the excerpts contain related information beyond the direct answer, include it to give a comprehensive response.
+- Use clear formatting: bullet points, paragraphs, or numbered lists where appropriate for readability.
 - For contact details (phone, mobile, email, LinkedIn): look for any number or address format in the excerpts and return it directly.
 - A phone/mobile number looks like: +91-XXXXXXXXXX or any digit sequence. If you see one, that IS the answer.
 - If the exact information is in the excerpts, state it confidently.
@@ -585,33 +484,6 @@ def api_search_stream():
     chunks = sort_chunks_by_document_order(chunks)
     chunks = fetch_adjacent_chunks(chunks)
 
-    # Attach images from retrieved sources (images rarely match queries semantically,
-    # so fetch them by source file when text chunks from that file are retrieved)
-    retrieved_sources = {c["source"] for c in chunks}
-    existing_image_sources = {c["source"] for c in chunks if c.get("type") == "image"}
-    for src in retrieved_sources - existing_image_sources:
-        try:
-            img_results = collection.get(
-                where={"$and": [{"source": src}, {"type": "image"}]},
-                include=["documents", "metadatas"],
-                limit=5,
-            )
-            if img_results and img_results["ids"]:
-                for i, img_id in enumerate(img_results["ids"]):
-                    meta = img_results["metadatas"][i]
-                    if meta.get("image_path"):
-                        chunks.append({
-                            "source": src,
-                            "score": 0,
-                            "text": img_results["documents"][i],
-                            "page": meta.get("page", -1),
-                            "type": "image",
-                            "image_path": meta.get("image_path"),
-                            "chunk_id": img_id,
-                        })
-        except Exception as e:
-            logger.warning(f"[SEARCH] Failed to fetch images for {src}: {e}")
-
     prompt = build_prompt(chunks, query)
 
     def generate():
@@ -624,7 +496,7 @@ def api_search_stream():
                 temperature=0,
                 stream=True,
                 messages=[
-                    {"role": "system", "content": "You are a helpful document retrieval assistant."},
+                    {"role": "system", "content": "You are a helpful document retrieval assistant. Always provide detailed, thorough, and well-explained answers. Never give one-line or overly brief responses. Include all relevant information, context, and examples from the provided excerpts."},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -654,7 +526,7 @@ def upload():
         return jsonify({"error": "Invalid filename."}), 400
 
     if not is_allowed_file(filename):
-        return jsonify({"error": "Supported: .txt, .pdf, .docx, .mp4, .mp3, .wav, .m4a, .webm"}), 400
+        return jsonify({"error": "Supported: .txt, .pdf, .docx"}), 400
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -686,6 +558,59 @@ def delete():
         ingest_status.pop(filename, None)
         return jsonify({"ok": True})
     return jsonify({"error": "No file specified."}), 400
+
+
+
+@app.route("/api/cleanup_index", methods=["POST"])
+def cleanup_index():
+    """Remove orphaned index entries for files that no longer exist on disk."""
+    try:
+        existing_files = set(os.listdir(DATA_DIR)) if os.path.exists(DATA_DIR) else set()
+
+        # Find all unique sources in the index using per-file checks
+        # First, get a sample to discover source names
+        total = collection.count()
+        if total == 0:
+            return jsonify({"ok": True, "removed": 0, "message": "Index is empty"})
+
+        # Get sources in small batches to avoid SQLite limit
+        all_sources = set()
+        offset = 0
+        batch = 100
+        while offset < total:
+            result = collection.get(limit=batch, offset=offset, include=["metadatas"])
+            if not result or not result["ids"]:
+                break
+            for meta in result["metadatas"]:
+                src = meta.get("source", "")
+                if src:
+                    all_sources.add(src)
+            offset += batch
+
+        # Find orphaned sources (in index but not on disk)
+        orphan_sources = all_sources - existing_files
+        total_removed = 0
+
+        for source in orphan_sources:
+            try:
+                result = collection.get(where={"source": source}, include=[])
+                if result and result["ids"]:
+                    # Delete in batches
+                    ids = result["ids"]
+                    for i in range(0, len(ids), 500):
+                        collection.delete(ids=ids[i:i + 500])
+                    total_removed += len(ids)
+                    logger.info(f"[CLEANUP] Removed {len(ids)} chunks for orphaned source: {source}")
+            except Exception as e:
+                logger.warning(f"[CLEANUP] Error cleaning {source}: {e}")
+
+        if total_removed > 0 and os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+            threading.Thread(target=upload_index, args=(INDEX_DIR,), daemon=True).start()
+
+        return jsonify({"ok": True, "removed": total_removed, "orphaned_sources": list(orphan_sources)})
+    except Exception as e:
+        logger.error(f"[CLEANUP] Failed: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 
