@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from werkzeug.utils import secure_filename
 from ingest import ingest_new_files, DATA_DIR
-from utils import is_audio_video, extract_audio, split_audio_for_whisper, chunk_transcript
 from blob_sync import download_index, upload_index
 
 # ── BM25 ranking (optional dependency for hybrid search) ────────────────────
@@ -42,7 +41,7 @@ openai_client = OpenAI(
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
-ALLOWED_EXTENSIONS = {".txt", ".pdf", ".docx", ".mp4", ".mp3", ".wav", ".m4a", ".webm"}
+ALLOWED_EXTENSIONS = {".txt", ".pdf", ".docx"}
 
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "i",
@@ -77,114 +76,12 @@ logger.info(f"ChromaDB ready. Total chunks in index: {collection.count()}")
 ingest_status = {}
 
 
-# ── Audio/Video transcription ─────────────────────────────────────────────────
-def transcribe_file(file_path, filename):
-    """Transcribe an audio/video file using Groq Whisper API.
-    Returns list of transcript chunks as (text, page, metadata_dict) tuples."""
-    logger.info(f"[TRANSCRIBE] Starting transcription for: {filename}")
-
-    # Extract audio (converts to WAV if needed)
-    wav_path = extract_audio(file_path)
-
-    # Split if >25MB (Groq Whisper limit)
-    segments_paths = split_audio_for_whisper(wav_path)
-
-    all_segments = []
-    time_offset = 0.0
-
-    for seg_path in segments_paths:
-        try:
-            with open(seg_path, "rb") as audio_file:
-                transcript = openai_client.audio.transcriptions.create(
-                    model="whisper-large-v3",
-                    file=audio_file,
-                    response_format="verbose_json",
-                )
-
-            # Extract segments with timestamps
-            if hasattr(transcript, "segments") and transcript.segments:
-                for seg in transcript.segments:
-                    all_segments.append({
-                        "text": seg.get("text", seg.text if hasattr(seg, "text") else ""),
-                        "start": (seg.get("start", 0) if isinstance(seg, dict) else getattr(seg, "start", 0)) + time_offset,
-                        "end": (seg.get("end", 0) if isinstance(seg, dict) else getattr(seg, "end", 0)) + time_offset,
-                    })
-            elif hasattr(transcript, "text") and transcript.text:
-                # Fallback: no segments, just full text
-                all_segments.append({
-                    "text": transcript.text,
-                    "start": time_offset,
-                    "end": time_offset + 600,
-                })
-
-            # Update time offset for next segment
-            if all_segments:
-                time_offset = all_segments[-1]["end"]
-
-        except Exception as e:
-            logger.error(f"[TRANSCRIBE] Whisper API failed for segment: {e}")
-            continue
-
-    # Clean up temp WAV files
-    if wav_path != file_path and os.path.exists(wav_path):
-        try:
-            os.remove(wav_path)
-        except OSError:
-            pass
-    for seg_path in segments_paths:
-        if seg_path != wav_path and seg_path != file_path and os.path.exists(seg_path):
-            try:
-                os.remove(seg_path)
-            except OSError:
-                pass
-
-    # Chunk the transcript
-    chunks = []
-    for idx, (text, timestamp) in enumerate(chunk_transcript(all_segments)):
-        chunks.append((text, None, {"type": "transcript", "timestamp": timestamp}))
-
-    logger.info(f"[TRANSCRIBE] Generated {len(chunks)} transcript chunks for: {filename}")
-    return chunks
-
-
 # ── Ingest background thread ──────────────────────────────────────────────────
 def run_ingest_background(filename):
     logger.info(f"[INGEST] Starting background ingest for: {filename}")
     ingest_status[filename] = "processing"
     try:
-        file_path = os.path.join(DATA_DIR, filename)
-
-        # Handle audio/video files: transcribe first, then ingest transcript chunks
-        if is_audio_video(file_path):
-            transcript_chunks = transcribe_file(file_path, filename)
-            if transcript_chunks:
-                # Ingest transcript chunks directly
-                from ingest import BATCH_SIZE, log as ingest_log
-                batch_docs, batch_metas, batch_ids = [], [], []
-                for idx, (text, page, meta) in enumerate(transcript_chunks):
-                    batch_docs.append(text)
-                    batch_metas.append({
-                        "source": filename,
-                        "page": page if page is not None else -1,
-                        "type": meta.get("type", "transcript"),
-                        "timestamp": meta.get("timestamp", ""),
-                    })
-                    batch_ids.append(f"{filename}_transcript_{idx}")
-
-                    if len(batch_docs) >= BATCH_SIZE:
-                        collection.upsert(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
-                        batch_docs, batch_metas, batch_ids = [], [], []
-
-                if batch_docs:
-                    collection.upsert(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
-
-                logger.info(f"[INGEST] Transcribed and indexed {len(transcript_chunks)} chunks for: {filename}")
-            else:
-                logger.warning(f"[INGEST] No transcript generated for: {filename}")
-        else:
-            # Standard document ingestion
-            ingest_new_files(collection=collection)
-
+        ingest_new_files(collection=collection)
         ingest_status[filename] = "done"
         logger.info(f"[INGEST] Completed successfully: {filename} | Total chunks: {collection.count()}")
         # Upload updated index to Blob Storage so it persists across deployments
@@ -626,7 +523,7 @@ def upload():
         return jsonify({"error": "Invalid filename."}), 400
 
     if not is_allowed_file(filename):
-        return jsonify({"error": "Supported: .txt, .pdf, .docx, .mp4, .mp3, .wav, .m4a, .webm"}), 400
+        return jsonify({"error": "Supported: .txt, .pdf, .docx"}), 400
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -711,6 +608,7 @@ def cleanup_index():
     except Exception as e:
         logger.error(f"[CLEANUP] Failed: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
 
 
 @app.errorhandler(413)

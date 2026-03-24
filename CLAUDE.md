@@ -1,7 +1,7 @@
 # Policy RAG — Development Guide for Claude
 
 ## Project Overview
-**Policy RAG** is a production-grade Retrieval-Augmented Generation (RAG) system for document Q&A. Users upload documents (PDF, DOCX, TXT), and the system answers questions by retrieving relevant chunks and generating responses using an LLM.
+**Policy RAG** is a production-grade Retrieval-Augmented Generation (RAG) system for document Q&A. Users upload documents (PDF, DOCX, TXT) and media files (MP4, MP3, WAV), and the system answers questions by retrieving relevant chunks and generating responses using an LLM. Supports text, tables, and audio/video transcripts. Includes text-to-speech playback of answers.
 
 **Live instance**: Azure Container Apps (auto-deployed from `sai1` branch)
 
@@ -97,13 +97,13 @@ User Browser (Vanilla JS + SSE)
 
 | File | Purpose | Modifications |
 |---|---|---|
-| `app.py` | Main Flask app — routes, retrieval pipeline, LLM streaming, Whisper transcription | Retrieval logic, metadata propagation, multi-modal prompt building, audio/video transcription |
-| `ingest.py` | Document ingestion — parsing, chunking, ChromaDB upsert | Type-aware chunking (text, table, image, transcript), type-specific chunk IDs |
-| `utils.py` | File parsers, table/image extractors, OCR, audio processing, transcript chunking | Multi-modal extraction pipeline |
-| `blob_sync.py` | Azure Blob Storage sync — index + images download/upload | Added `download_images()` / `upload_images()` |
-| `requirements.txt` | Python dependencies | Added `rank-bm25`, `pytesseract`, `Pillow`, `moviepy` |
-| `templates/index.html` | Jinja2 frontend template | Inline image display, type-specific source icons, audio/video upload |
-| `TECH_STACK.md` | Full documentation (keep in sync!) | Updated with multi-modal support |
+| `app.py` | Main Flask app — routes, retrieval pipeline, LLM streaming, Whisper transcription, cleanup | Retrieval logic, metadata propagation, multi-modal prompt building, audio/video transcription, batch delete |
+| `ingest.py` | Document ingestion — parsing, chunking, ChromaDB upsert | Type-aware chunking (text, table, transcript), type-specific chunk IDs |
+| `utils.py` | File parsers, table extractors, audio processing, transcript chunking | Multi-modal extraction pipeline |
+| `blob_sync.py` | Azure Blob Storage sync — ChromaDB index download/upload | Index persistence across deployments |
+| `requirements.txt` | Python dependencies | `rank-bm25`, `moviepy` |
+| `templates/index.html` | Jinja2 frontend template | Play button (TTS), type-specific source icons, audio/video upload |
+| `TECH_STACK.md` | Full documentation (keep in sync!) | Updated with current features |
 
 ---
 
@@ -122,11 +122,11 @@ User Browser (Vanilla JS + SSE)
 - **Chunk fetching**: If N-1 or N+1 missing → skip, don't crash
 
 ### Variable Naming
-- `chunk_id` — unique identifier (format: `{filename}_chunk_{index}`, `{filename}_table_{page}_{idx}`, `{filename}_image_{page}_{idx}`, `{filename}_transcript_{idx}`)
+- `chunk_id` — unique identifier (format: `{filename}_chunk_{index}`, `{filename}_table_{page}_{idx}`, `{filename}_transcript_{idx}`)
 - `distance` — L2 distance from ChromaDB (lower = more similar)
 - `source` — filename/path of the chunk's source document
 - `top_k` — number of chunks to return to LLM
-- `type` — chunk content type: `"text"`, `"table"`, `"image"`, `"transcript"` (default: `"text"` for backward compat)
+- `type` — chunk content type: `"text"`, `"table"`, `"transcript"` (default: `"text"` for backward compat)
 
 ---
 
@@ -220,9 +220,13 @@ print(result)  # Should return [original, alt1, alt2]
 - **Fallback**: If not installed, uses semantic-only ranking (no error, graceful)
 
 ### Long Ingestion Time
-- **Old cause**: Image extraction (no longer done)
 - **Current**: Batch upsert (100 chunks per insert) → SQLite overhead
 - **Mitigation**: Acceptable trade-off; async ingest doesn't block HTTP
+
+### Large File Deletion
+- **Issue**: `collection.get(where={"source": filename})` crashes on files with many chunks
+- **Fix**: Delete in batches of 500 IDs per loop iteration
+- **Endpoint**: `/api/cleanup_index` — removes orphaned index entries for deleted files (batched)
 
 ### Duplicate Chunks in Results
 - **Cause**: Same content embedded in multiple pages/documents
@@ -284,7 +288,10 @@ FLASK_SECRET_KEY=your-secret-here
 3. **Analytics**: Track queries, popular topics, retrieval performance
 4. **API-First Architecture**: Separate API backend from frontend
 5. **Cost Optimization**: Batch queries, cache embeddings
-6. ~~**Multi-Modal RAG**: Support images, tables, videos (not just text)~~ **DONE** — Tables (PDF/DOCX), images (PDF with OCR), audio/video (Whisper transcription)
+6. ~~**Multi-Modal RAG**: Support images, tables, videos (not just text)~~ **DONE** — Tables (PDF/DOCX), audio/video (Whisper transcription)
+9. ~~**Text-to-Speech**: Play button for LLM answers~~ **DONE** — Browser Web Speech API with Indian English voice (en-IN)
+10. ~~**Batch Delete & Cleanup**: Fix SQLite limits on large file deletion~~ **DONE** — Batch delete (500 IDs) + orphan cleanup endpoint
+11. ~~**Docker Layer Caching**: Faster CI/CD deployments~~ **DONE** — Buildx with registry-based cache
 7. **Reranker Model**: Use a dedicated reranker (ColBERT, MonoBERT) instead of BM25
 8. **Semantic Caching**: Cache embeddings for common queries
 
@@ -339,6 +346,6 @@ curl -N http://localhost:5000/api/search_stream \
 
 ---
 
-**Last Updated**: 2026-03-23
+**Last Updated**: 2026-03-24
 **Branch**: `sai1` (main development branch)
 **Maintainers**: You (and any other collaborators)
