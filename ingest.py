@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = "data/raw/knowledge"
 INDEX_DIR = "index/chroma_db"
-IMAGES_DIR = "static/images"
 COLLECTION_NAME = "knowledge_base"
 BATCH_SIZE = 100
 
@@ -86,8 +85,6 @@ def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR, collection=None):
                 if chunk_type == "table":
                     chunk_id = f"{filename}_table_{page_num}_{table_idx}"
                     table_idx += 1
-                elif chunk_type == "image":
-                    chunk_id = f"{filename}_image_{page_num}_{meta.get('image_index', 0)}"
                 else:
                     chunk_id = f"{filename}_chunk_{chunk_idx}"
                     chunk_idx += 1
@@ -98,8 +95,8 @@ def ingest_new_files(data_dir=DATA_DIR, index_dir=INDEX_DIR, collection=None):
                     "page": page_num if page_num is not None else -1,
                     "type": chunk_type,
                 }
-                # Carry through extra metadata (image_path, table_index, timestamp, etc.)
-                for key in ("image_path", "table_index", "timestamp"):
+                # Carry through extra metadata (table_index, timestamp, etc.)
+                for key in ("table_index", "timestamp"):
                     if key in meta:
                         chunk_meta[key] = meta[key]
 

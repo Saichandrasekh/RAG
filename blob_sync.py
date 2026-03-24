@@ -4,7 +4,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 BLOB_PREFIX = "chroma_index/"
-IMAGES_BLOB_PREFIX = "extracted_images/"
 
 
 def _get_container_client():
@@ -77,48 +76,3 @@ def upload_index(local_dir: str) -> bool:
         return False
 
 
-def download_images(local_dir: str = "static/images") -> bool:
-    """Download extracted images from Blob Storage on startup."""
-    try:
-        client = _get_container_client()
-        blobs = list(client.list_blobs(name_starts_with=IMAGES_BLOB_PREFIX))
-        if not blobs:
-            logger.info("[BLOB] No extracted images in Blob Storage.")
-            return False
-        os.makedirs(local_dir, exist_ok=True)
-        for blob in blobs:
-            relative = blob.name[len(IMAGES_BLOB_PREFIX):]
-            if not relative:
-                continue
-            local_path = os.path.join(local_dir, relative.replace("/", os.sep))
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            data = client.download_blob(blob.name).readall()
-            with open(local_path, "wb") as f:
-                f.write(data)
-        logger.info(f"[BLOB] Images downloaded: {len(blobs)} files from Blob Storage.")
-        return True
-    except Exception as e:
-        logger.error(f"[BLOB] Image download failed: {e}", exc_info=True)
-        return False
-
-
-def upload_images(local_dir: str = "static/images") -> bool:
-    """Upload extracted images to Blob Storage after ingest."""
-    try:
-        if not os.path.isdir(local_dir):
-            return False
-        client = _get_container_client()
-        uploaded = 0
-        for root, dirs, files in os.walk(local_dir):
-            for fname in files:
-                local_path = os.path.join(root, fname)
-                relative = os.path.relpath(local_path, local_dir).replace("\\", "/")
-                blob_name = IMAGES_BLOB_PREFIX + relative
-                with open(local_path, "rb") as f:
-                    client.upload_blob(blob_name, f, overwrite=True)
-                uploaded += 1
-        logger.info(f"[BLOB] Images uploaded: {uploaded} files to Blob Storage.")
-        return True
-    except Exception as e:
-        logger.error(f"[BLOB] Image upload failed: {e}", exc_info=True)
-        return False

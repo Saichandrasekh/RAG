@@ -1,5 +1,4 @@
 import os
-import io
 import subprocess
 import tempfile
 import logging
@@ -16,14 +15,6 @@ except LookupError:
 import fitz  # pymupdf
 from docx import Document
 from nltk.tokenize import sent_tokenize
-
-# Optional OCR dependencies
-try:
-    from PIL import Image
-    import pytesseract
-    _OCR_AVAILABLE = True
-except ImportError:
-    _OCR_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -48,83 +39,6 @@ def stream_docx(path):
     for p in doc.paragraphs:
         if p.text.strip():
             yield p.text, None
-
-def _is_blank_image(pil_img, threshold=10):
-    """Check if image is effectively blank (all black, all white, or uniform color)."""
-    try:
-        grayscale = pil_img.convert("L")
-        extrema = grayscale.getextrema()
-        # If min and max pixel values are very close, image is uniform/blank
-        return (extrema[1] - extrema[0]) < threshold
-    except Exception:
-        return False
-
-
-def extract_pdf_images(path, output_dir, min_size=100, min_bytes=5000, max_ocr_dim=2000):
-    """Extract embedded images from PDF, run OCR, save to output_dir.
-    Yields dicts: {image_path, ocr_text, page, image_index, ext}.
-    Skips tiny/decorative/blank images."""
-    os.makedirs(output_dir, exist_ok=True)
-    doc = fitz.open(path)
-    for page_num, page in enumerate(doc):
-        for img_idx, img in enumerate(page.get_images(full=True)):
-            try:
-                xref = img[0]
-                base_image = doc.extract_image(xref)
-                img_bytes = base_image["image"]
-                ext = base_image["ext"]
-                width = base_image.get("width", 0)
-                height = base_image.get("height", 0)
-
-                # Skip tiny decorative images (icons, logos, separators)
-                if width < min_size or height < min_size:
-                    continue
-
-                # Skip very small files (likely not meaningful content)
-                if len(img_bytes) < min_bytes:
-                    continue
-
-                # Skip blank/black/white images
-                if _OCR_AVAILABLE:
-                    try:
-                        check_img = Image.open(io.BytesIO(img_bytes))
-                        if _is_blank_image(check_img):
-                            logger.info(f"[IMAGE] Skipping blank image: page {page_num} img {img_idx}")
-                            continue
-                    except Exception:
-                        pass
-
-                img_path = os.path.join(output_dir, f"page_{page_num}_{img_idx}.{ext}")
-                with open(img_path, "wb") as f:
-                    f.write(img_bytes)
-
-                # OCR the image
-                ocr_text = ""
-                if _OCR_AVAILABLE:
-                    try:
-                        pil_img = Image.open(io.BytesIO(img_bytes))
-                        # Resize large images for memory safety
-                        if max(pil_img.size) > max_ocr_dim:
-                            pil_img.thumbnail((max_ocr_dim, max_ocr_dim))
-                        ocr_text = pytesseract.image_to_string(pil_img).strip()
-                    except Exception as e:
-                        logger.warning(f"[OCR] Failed for page {page_num} img {img_idx}: {e}")
-
-                if not ocr_text:
-                    ocr_text = f"[Image on page {page_num}]"
-
-                yield {
-                    "image_path": img_path,
-                    "ocr_text": ocr_text,
-                    "page": page_num,
-                    "image_index": img_idx,
-                    "ext": ext,
-                }
-            except Exception as e:
-                logger.warning(f"[IMAGE] Failed to extract page {page_num} img {img_idx}: {e}")
-                continue
-    doc.close()
-
 
 def _table_to_markdown(rows):
     """Convert a list of rows (each a list of cell strings) to markdown table."""
@@ -216,7 +130,7 @@ def chunk_text_stream(text_stream, sentences_per_chunk=5, overlap=2):
 
 def yield_file_chunks(path, sentences_per_chunk=3, overlap=1):
     """Yield (text, page, metadata_dict) tuples for all content types.
-    metadata_dict contains at minimum {"type": "text"|"table"|"image"}.
+    metadata_dict contains at minimum {"type": "text"|"table"}.
     """
     ext = path.lower()
 
@@ -240,19 +154,6 @@ def yield_file_chunks(path, sentences_per_chunk=3, overlap=1):
     elif ext.endswith(".docx"):
         for md_text, page_num, table_idx in extract_docx_tables(path):
             yield md_text, page_num, {"type": "table", "table_index": table_idx}
-
-    # ── Image chunks (PDF only) ──
-    if ext.endswith(".pdf"):
-        filename_stem = os.path.splitext(os.path.basename(path))[0]
-        images_dir = os.path.join("static", "images", filename_stem)
-        for img_info in extract_pdf_images(path, images_dir):
-            # Store web-relative path for serving
-            web_path = f"/static/images/{filename_stem}/page_{img_info['page']}_{img_info['image_index']}.{img_info['ext']}"
-            yield img_info["ocr_text"], img_info["page"], {
-                "type": "image",
-                "image_path": web_path,
-                "image_index": img_info["image_index"],
-            }
 
 
 # ── Audio/Video helpers ──────────────────────────────────────────────────────

@@ -13,6 +13,4 @@ python-dotenv
 gunicorn
 azure-storage-blob
 rank-bm25
-pytesseract
-Pillow
 moviepy

@@ -4,7 +4,6 @@ from chromadb.utils import embedding_functions
 import os
 import re
 import json
-import shutil
 import threading
 import logging
 from dotenv import load_dotenv
@@ -12,7 +11,7 @@ from openai import OpenAI
 from werkzeug.utils import secure_filename
 from ingest import ingest_new_files, DATA_DIR
 from utils import is_audio_video, extract_audio, split_audio_for_whisper, chunk_transcript
-from blob_sync import download_index, upload_index, download_images, upload_images
+from blob_sync import download_index, upload_index
 
 # ── BM25 ranking (optional dependency for hybrid search) ────────────────────
 try:
@@ -60,8 +59,6 @@ if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
         logger.info("[BLOB] Index restored from Blob Storage.")
     else:
         logger.info("[BLOB] No index in Blob — will start fresh and build on first ingest.")
-    # Also download extracted images
-    download_images()
 else:
     logger.info("[BLOB] AZURE_STORAGE_CONNECTION_STRING not set — skipping Blob sync (local mode).")
 
@@ -194,7 +191,6 @@ def run_ingest_background(filename):
         if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
             logger.info("[BLOB] Uploading updated index to Blob Storage...")
             upload_index(INDEX_DIR)
-            upload_images()
     except Exception as e:
         ingest_status[filename] = f"error: {e}"
         logger.error(f"[INGEST] Failed for {filename}: {e}", exc_info=True)
@@ -210,16 +206,20 @@ def delete_file_and_index(filename):
     if os.path.exists(file_path):
         os.remove(file_path)
         logger.info(f"[DELETE] File removed: {file_path}")
-    # Clean up extracted images
-    filename_stem = os.path.splitext(filename)[0]
-    images_dir = os.path.join("static", "images", filename_stem)
-    if os.path.isdir(images_dir):
-        shutil.rmtree(images_dir, ignore_errors=True)
-        logger.info(f"[DELETE] Removed images dir: {images_dir}")
-    results = collection.get(where={"source": filename})
-    if results and results["ids"]:
+    # Delete index chunks in batches to avoid SQLite variable limit
+    total_removed = 0
+    while True:
+        try:
+            results = collection.get(where={"source": filename}, limit=500, include=[])
+        except Exception as e:
+            logger.warning(f"[DELETE] Error fetching chunks for {filename}: {e}")
+            break
+        if not results or not results["ids"]:
+            break
         collection.delete(ids=results["ids"])
-        logger.info(f"[DELETE] Removed {len(results['ids'])} chunks from index for: {filename}")
+        total_removed += len(results["ids"])
+    if total_removed:
+        logger.info(f"[DELETE] Removed {total_removed} chunks from index for: {filename}")
         if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
             threading.Thread(target=upload_index, args=(INDEX_DIR,), daemon=True).start()
 
@@ -388,9 +388,9 @@ def fetch_adjacent_chunks(chunks: list) -> list:
     """
     expanded = []
     for chunk in chunks:
-        # Tables and images are self-contained — skip adjacent expansion
+        # Tables are self-contained — skip adjacent expansion
         chunk_type = chunk.get("type", "text")
-        if chunk_type in ("table", "image"):
+        if chunk_type == "table":
             expanded.append(chunk)
             continue
 
@@ -496,7 +496,6 @@ def retrieve_chunks(query, top_k=None):
                 "page": meta.get("page", -1),
                 "chunk_id": chunk_id,
                 "type": meta.get("type", "text"),
-                "image_path": meta.get("image_path"),
                 "timestamp": meta.get("timestamp"),
             }
 
@@ -528,10 +527,6 @@ def build_prompt(chunks, query):
             page = c.get("page", -1)
             label = f"page {page}" if page >= 0 else "unknown page"
             text = f"[Table from {label}]\n{text}"
-        elif chunk_type == "image":
-            page = c.get("page", -1)
-            label = f"page {page}" if page >= 0 else "unknown page"
-            text = f"[Image from {label}]\n{text}"
         elif chunk_type == "transcript":
             ts = c.get("timestamp", "")
             text = f"[Transcript {ts}]\n{text}" if ts else text
@@ -588,33 +583,6 @@ def api_search_stream():
     # Multi-document context window: sort by document order, then expand with adjacent chunks
     chunks = sort_chunks_by_document_order(chunks)
     chunks = fetch_adjacent_chunks(chunks)
-
-    # Attach images from retrieved sources (images rarely match queries semantically,
-    # so fetch them by source file when text chunks from that file are retrieved)
-    retrieved_sources = {c["source"] for c in chunks}
-    existing_image_sources = {c["source"] for c in chunks if c.get("type") == "image"}
-    for src in retrieved_sources - existing_image_sources:
-        try:
-            img_results = collection.get(
-                where={"$and": [{"source": src}, {"type": "image"}]},
-                include=["documents", "metadatas"],
-                limit=5,
-            )
-            if img_results and img_results["ids"]:
-                for i, img_id in enumerate(img_results["ids"]):
-                    meta = img_results["metadatas"][i]
-                    if meta.get("image_path"):
-                        chunks.append({
-                            "source": src,
-                            "score": 0,
-                            "text": img_results["documents"][i],
-                            "page": meta.get("page", -1),
-                            "type": "image",
-                            "image_path": meta.get("image_path"),
-                            "chunk_id": img_id,
-                        })
-        except Exception as e:
-            logger.warning(f"[SEARCH] Failed to fetch images for {src}: {e}")
 
     prompt = build_prompt(chunks, query)
 

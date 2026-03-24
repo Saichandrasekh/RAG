@@ -248,20 +248,16 @@
     .empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; opacity: 0.3; }
     .empty-state p { font-size: 1rem; }
 
-    /* ── Retrieved images ── */
-    .image-results { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
-    .image-result-card {
-      border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;
-      background: #f8fafc;
+    /* ── Play button (TTS) ── */
+    .btn-play {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
+      border-radius: 8px; padding: 6px 14px; font-size: 0.78rem; font-weight: 600;
+      cursor: pointer; transition: all 0.2s; margin-top: 10px;
     }
-    .image-result-card img {
-      width: 100%; max-height: 400px; object-fit: contain;
-      display: block; background: white;
-    }
-    .image-result-caption {
-      padding: 8px 12px; font-size: 0.78rem; color: #64748b;
-      border-top: 1px solid #e2e8f0;
-    }
+    .btn-play:hover { background: #e2e8f0; color: #1e293b; }
+    .btn-play.playing { background: #dbeafe; color: #2563eb; border-color: #93c5fd; }
+    .btn-play svg { width: 14px; height: 14px; }
   </style>
 </head>
 <body>
@@ -453,19 +449,14 @@
           }
         }
 
-        // Inline images from retrieved chunks
-        const imageChunks = chunks.filter(c => c.type === 'image' && c.image_path);
-        if (imageChunks.length) {
-          let imagesHtml = '<div class="image-results">';
-          for (const ic of imageChunks) {
-            const page = ic.page >= 0 ? ` page ${ic.page}` : '';
-            imagesHtml += `<div class="image-result-card">
-              <img src="${ic.image_path}" alt="Image from ${ic.source}${page}" loading="lazy">
-              <div class="image-result-caption">From ${ic.source}${page}</div>
-            </div>`;
-          }
-          imagesHtml += '</div>';
-          aiMsg.querySelector('.answer').innerHTML += imagesHtml;
+        // Add play button for TTS
+        if (fullText) {
+          const playBtnId = 'play-' + Date.now();
+          answerEl.insertAdjacentHTML('afterend',
+            `<button class="btn-play" id="${playBtnId}" onclick="toggleTTS(this, ${JSON.stringify(fullText).replace(/</g,'\\u003c')})">
+              <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Play
+            </button>`);
         }
 
         // Sources
@@ -473,11 +464,9 @@
           const uniqueSources = [...new Set(chunks.map(c => c.source))];
           const pills = uniqueSources.map(s => {
             const hasTable = chunks.some(c => c.source === s && c.type === 'table');
-            const hasImage = chunks.some(c => c.source === s && c.type === 'image');
             const hasTranscript = chunks.some(c => c.source === s && c.type === 'transcript');
             let icon = '📄';
             if (hasTranscript) icon = '🎙️';
-            else if (hasImage) icon = '🖼️';
             else if (hasTable) icon = '📊';
             return `<span class="source-pill">${icon} ${s}</span>`;
           }).join('');
@@ -707,6 +696,51 @@
         if (status === 'processing') startPolling(fname);
       });
     })();
+
+    // ── Text-to-Speech (TTS) ─────────────────────────────────────
+    let currentUtterance = null;
+    let currentPlayBtn = null;
+
+    function toggleTTS(btn, text) {
+      // If already playing this button, stop
+      if (currentPlayBtn === btn && speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+        resetPlayBtn(btn);
+        currentPlayBtn = null;
+        return;
+      }
+
+      // Stop any other playing
+      if (speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+        if (currentPlayBtn) resetPlayBtn(currentPlayBtn);
+      }
+
+      // Strip markdown formatting for cleaner speech
+      const cleanText = text
+        .replace(/[#*_`~\[\]()]/g, '')
+        .replace(/\n+/g, '. ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1;
+      utterance.pitch = 1;
+
+      btn.classList.add('playing');
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause`;
+      currentPlayBtn = btn;
+
+      utterance.onend = () => { resetPlayBtn(btn); currentPlayBtn = null; };
+      utterance.onerror = () => { resetPlayBtn(btn); currentPlayBtn = null; };
+
+      speechSynthesis.speak(utterance);
+    }
+
+    function resetPlayBtn(btn) {
+      btn.classList.remove('playing');
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg> Play`;
+    }
   </script>
 
 </body>
