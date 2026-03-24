@@ -437,7 +437,10 @@ def build_prompt(chunks, query):
     return f"""You are a helpful Document Retrieval Assistant. Answer the user's question using ONLY the excerpts provided below.
 
 Rules:
-- Answer directly and clearly based on the excerpts.
+- Provide detailed, thorough, and well-explained answers. Do NOT give one-line or overly brief responses.
+- Include all relevant information from the excerpts — explain concepts fully with context, examples, and details found in the excerpts.
+- If the excerpts contain related information beyond the direct answer, include it to give a comprehensive response.
+- Use clear formatting: bullet points, paragraphs, or numbered lists where appropriate for readability.
 - For contact details (phone, mobile, email, LinkedIn): look for any number or address format in the excerpts and return it directly.
 - A phone/mobile number looks like: +91-XXXXXXXXXX or any digit sequence. If you see one, that IS the answer.
 - If the exact information is in the excerpts, state it confidently.
@@ -493,7 +496,7 @@ def api_search_stream():
                 temperature=0,
                 stream=True,
                 messages=[
-                    {"role": "system", "content": "You are a helpful document retrieval assistant."},
+                    {"role": "system", "content": "You are a helpful document retrieval assistant. Always provide detailed, thorough, and well-explained answers. Never give one-line or overly brief responses. Include all relevant information, context, and examples from the provided excerpts."},
                     {"role": "user", "content": prompt}
                 ]
             )
